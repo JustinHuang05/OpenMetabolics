@@ -28,12 +28,17 @@ class SensorDataRecorder {
     );
   }
 
-  // Start recording data
+  // Start recording data (reset file, buffer, and state)
   Future<void> startRecording() async {
-    if (!_isRecording) {
-      await _initializeFile(); // Overwrite the file at the start of recording
-      _isRecording = true;
-    }
+    // Ensure any previous recording session is stopped
+    await stopRecording();
+
+    // Reinitialize the file and clear buffers
+    await _initializeFile();
+    _dataBuffer.clear(); // Clear any previous buffered data
+    _isRecording = true;
+
+    print('Recording started. CSV file reset.');
   }
 
   // Stop recording data

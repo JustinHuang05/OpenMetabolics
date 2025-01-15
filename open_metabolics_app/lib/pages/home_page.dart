@@ -4,7 +4,7 @@ import 'dart:math'; // To calculate the second norm
 import 'dart:io'; // To read the CSV file
 import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
-import '../sensor_channel.dart';
+import '../services/sensor_channel.dart';
 import '../services/sensor_data_recorder.dart'; // Import the channel class
 
 class SensorScreen extends StatefulWidget {
@@ -43,21 +43,27 @@ class _SensorScreenState extends State<SensorScreen> {
 
   void _startTracking() {
     print('Start button pressed');
-    _startTime = DateTime.now();
 
-    // Ensure UI updates when tracking starts
+    // Reset all states and buffers
+    _sensorDataRecorder
+        .startRecording(); // Reset the CSV file and recording state
+    _startTime = DateTime.now(); // Reset start time
+
     setState(() {
       _isTracking = true;
-      _csvData.clear(); // Clear previous CSV data when starting new tracking
+      _csvData.clear(); // Clear any previously displayed CSV data
       _gyroscopeNorms.clear(); // Clear gyroscope norms
       _rowCount = 0; // Reset row count
+      _isAboveThreshold = false; // Reset threshold flag
     });
 
+    // Start sensors
     SensorChannel.startSensors().then((_) {}).catchError((error) {
       print('Error starting sensors: $error');
     });
 
     // Accelerometer subscription
+    _accelerometerSubscription?.cancel(); // Cancel any existing subscription
     _accelerometerSubscription = Stream.periodic(
       Duration(milliseconds: (1000 / _samplesPerSecond).round()),
     ).asyncMap((_) => SensorChannel.getAccelerometerData()).listen((data) {
@@ -66,14 +72,13 @@ class _SensorScreenState extends State<SensorScreen> {
             'Accelerometer: (${data[0].toStringAsFixed(2)}, ${data[1].toStringAsFixed(2)}, ${data[2].toStringAsFixed(2)})';
       });
 
-      // Save the accelerometer data to buffer, but don't write to CSV yet
       final elapsedTime = DateTime.now().difference(_startTime!).inMilliseconds;
-      _sensorDataRecorder.bufferData(elapsedTime / 1000.0, data[0], data[1],
-          data[2], 0, 0, 0 // Placeholder for gyroscope data
-          );
+      _sensorDataRecorder.bufferData(
+          elapsedTime / 1000.0, data[0], data[1], data[2], 0, 0, 0);
     });
 
-// Gyroscope subscription
+    // Gyroscope subscription
+    _gyroscopeSubscription?.cancel(); // Cancel any existing subscription
     _gyroscopeSubscription = Stream.periodic(
       Duration(milliseconds: (1000 / _samplesPerSecond).round()),
     ).asyncMap((_) => SensorChannel.getGyroscopeData()).listen((data) {
@@ -83,26 +88,16 @@ class _SensorScreenState extends State<SensorScreen> {
 
         double secondNorm =
             sqrt(data[0] * data[0] + data[1] * data[1] + data[2] * data[2]);
-
-        // Save second norm for later averaging
         _gyroscopeNorms.add(secondNorm);
 
         final elapsedTime =
             DateTime.now().difference(_startTime!).inMilliseconds;
 
-        // Save the gyroscope data to buffer, but don't write to CSV yet
         _sensorDataRecorder.bufferData(
-            elapsedTime / 1000.0,
-            0,
-            0,
-            0, // Placeholder for accelerometer data
-            data[0],
-            data[1],
-            data[2]);
+            elapsedTime / 1000.0, 0, 0, 0, data[0], data[1], data[2]);
 
-        _rowCount++; // Increment row count
+        _rowCount++;
 
-        // If 500 rows have been recorded, process the batch
         if (_rowCount >= _batchSize) {
           _processGyroscopeDataBatch();
         }
@@ -155,14 +150,13 @@ class _SensorScreenState extends State<SensorScreen> {
     _accelerometerSubscription?.cancel();
     _gyroscopeSubscription?.cancel();
 
-    // Ensure UI updates when tracking stops
     setState(() {
       _isTracking = false;
     });
 
-    // Stop recording and read the CSV file content
+    // Stop recording and save data
     await _sensorDataRecorder.stopRecording();
-    _loadCSVData();
+    _loadCSVData(); // Load CSV data to display in ListView
   }
 
   Future<void> _loadCSVData() async {
@@ -250,7 +244,6 @@ class _SensorScreenState extends State<SensorScreen> {
                   _stopTracking();
                   _isAboveThreshold = false;
                 } else {
-                  _sensorDataRecorder.startRecording();
                   _startTracking();
                 }
               });
