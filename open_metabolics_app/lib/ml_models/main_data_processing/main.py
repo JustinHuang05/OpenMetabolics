@@ -35,7 +35,7 @@ model_url = "https://data-driven-webservice-735933323813.us-east1.run.app/predic
 correction_url = "https://pocket-motion-webservice-735933323813.us-east1.run.app/predict"
 
 """Load daily smartphone data"""
-csv_path = './example_data/just_testing.csv'
+csv_path = './example_data/data_segment.csv'
 df_sp = pd.read_csv(csv_path).values
 
 """Constants for low-pass filter"""

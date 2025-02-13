@@ -147,9 +147,6 @@ def processRawGait_model(data_array, start_ind, end_ind, weight, height, correct
 def estimateMetabolics(model, gait_data, peak_index, weight, height, cur_basal, correction_model, stride_detect_window):
     """Estimate energy expenditure using model predictions based on processed gait data."""
 
-    # print(gait_data)
-    # print(peak_index)    
-
     ee_all = []
     for i in range(len(peak_index) - 1):
         gait_start_index = peak_index[i]

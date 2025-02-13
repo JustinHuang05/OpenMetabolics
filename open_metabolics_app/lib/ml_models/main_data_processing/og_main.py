@@ -36,7 +36,7 @@ data_driven_model = pickle.load(open('./model_weight/data_driven_ee_model.pkl', 
 pocket_motion_correction_model = pickle.load(open('./model_weight/pocket_motion_correction_model.pkl', 'rb'))
 
 """Load daily smartphone data"""
-csv_path = './example_data/just_testing.csv'
+csv_path = './example_data/data_segment.csv'
 df_sp = pd.read_csv(csv_path).values
 
 """Constants for low-pass filter"""
@@ -69,12 +69,13 @@ for idx, cur_active_idx in enumerate(active_idx):
     stride_detect_window = 2 * sampling_freq  # Stride detection window in samples (2 seconds)
     start_idx = cur_active_idx[0]
     end_idx = cur_active_idx[-1]
+
     cur_pocket_gyro = gyro_sp[start_idx:end_idx, :]
     cur_pocket_acc = acc_sp[start_idx:end_idx, :]
 
     # Print bout details
     num_rows = end_idx - start_idx
-    print(f"Bout {idx + 1}: Start index = {start_idx}, End index = {end_idx}, Rows = {num_rows}")
+    #print(f"Bout {idx + 1}: Start index = {start_idx}, End index = {end_idx}, Rows = {num_rows}")
 
     """Step 2: Orientation alignment: Align with the superior-inferior axis of the thigh"""
     opt_rotm_z_pocket, theta_z = og_utils.get_rotate_z(cur_pocket_acc)
@@ -119,7 +120,7 @@ for idx, cur_active_idx in enumerate(active_idx):
         gait_data_pocket = og_utils.segment_data(gait_peaks, cur_pocket_gyro_cal, stride_detect_window)
         
         if len(gait_peaks) > 3 and len(gait_data_pocket) >= 1:  # Consider it a bout if more than 3 peaks are detected
-            print(f"Sending {cur_pocket_gyro_cal.shape[0]} rows to estimateMetabolics for bout {idx + 1}.")
+            #print(f"Sending {cur_pocket_gyro_cal.shape[0]} rows to estimateMetabolics for bout {idx + 1}.")
             ee_est = og_utils.estimateMetabolics(
                 data_driven_model, cur_pocket_gyro_cal, gait_peaks,
                 weight, height, cur_basal, 

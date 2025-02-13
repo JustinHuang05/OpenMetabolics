@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math'; // For L2 norm calculation
 import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
 import 'package:path/path.dart' as p;
@@ -11,6 +12,7 @@ class SensorDataRecorder {
 
   // Buffer to hold rows of data
   List<List<double>> _dataBuffer = [];
+  List<double> _l2NormBuffer = []; // Store L2 norms
 
   // Initialize and create a CSV file (overwrite mode)
   Future<void> _initializeFile() async {
@@ -24,7 +26,7 @@ class SensorDataRecorder {
 
     // Always write headers when creating/overwriting the file
     _sink.writeln(
-      'Timestamp,Accelerometer_X,Accelerometer_Y,Accelerometer_Z,Gyroscope_X,Gyroscope_Y,Gyroscope_Z',
+      'Timestamp,Accelerometer_X,Accelerometer_Y,Accelerometer_Z,Gyroscope_X,Gyroscope_Y,Gyroscope_Z,Gyro_L2_Norm',
     );
   }
 
@@ -35,7 +37,8 @@ class SensorDataRecorder {
 
     // Reinitialize the file and clear buffers
     await _initializeFile();
-    _dataBuffer.clear(); // Clear any previous buffered data
+    _dataBuffer.clear(); // Clear previous buffered data
+    _l2NormBuffer.clear(); // Clear L2 norm buffer
     _isRecording = true;
 
     print('Recording started. CSV file reset.');
@@ -56,45 +59,36 @@ class SensorDataRecorder {
   void bufferData(double timestamp, double accX, double accY, double accZ,
       double gyroX, double gyroY, double gyroZ) {
     if (_isRecording) {
-      _dataBuffer.add([timestamp, accX, accY, accZ, gyroX, gyroY, gyroZ]);
+      // Compute the L2 norm for gyroscope data
+      double l2Norm = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ);
+
+      // Store the sensor data along with L2 norm
+      _dataBuffer
+          .add([timestamp, accX, accY, accZ, gyroX, gyroY, gyroZ, l2Norm]);
+      _l2NormBuffer.add(l2Norm); // Store L2 norm separately for threshold check
     }
   }
 
   void saveBufferedData() {
     if (_isRecording && _dataBuffer.isNotEmpty) {
-      // Process data in pairs of two rows
-      for (int i = 0; i < _dataBuffer.length; i += 2) {
-        List<double> row1 = _dataBuffer[i];
+      for (int i = 0; i < _dataBuffer.length; i++) {
+        List<double> row = _dataBuffer[i];
 
-        if (i + 1 < _dataBuffer.length) {
-          // Replace gyroscope data in the first row with that from the second row
-          List<double> row2 = _dataBuffer[i + 1];
-
-          // Gyroscope values in row1 (4, 5, 6) replaced by those from row2
-          row1[4] = row2[4]; // Gyroscope_X
-          row1[5] = row2[5]; // Gyroscope_Y
-          row1[6] = row2[6]; // Gyroscope_Z
-
-          // Write the modified first row to the CSV
-          final csvRow = row1.map((value) => value.toStringAsFixed(2)).toList();
-          _sink.writeln(ListToCsvConverter().convert([csvRow]));
-
-          // Skip the second row, as it's effectively merged with the first one
-        } else {
-          // If there's an odd row left, just save it as is
-          final csvRow = row1.map((value) => value.toStringAsFixed(2)).toList();
-          _sink.writeln(ListToCsvConverter().convert([csvRow]));
-        }
+        // Format the row for CSV output
+        final csvRow = row.map((value) => value.toStringAsFixed(2)).toList();
+        _sink.writeln(ListToCsvConverter().convert([csvRow]));
       }
 
       // Clear buffer after writing
       _dataBuffer.clear();
+      _l2NormBuffer.clear();
     }
   }
 
   // Clear the buffer (discard unsaved data)
   void clearBuffer() {
     _dataBuffer.clear(); // Clear the buffer without saving the data
+    _l2NormBuffer.clear(); // Also clear the L2 norm buffer
   }
 
   // Save a message to the CSV file
