@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math'; // For L2 norm calculation
 import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
 import 'package:path/path.dart' as p;
+import 'dart:math'; // ✅ Import math for L2 norm calculation
 
 class SensorDataRecorder {
   late File _file;
@@ -12,7 +12,6 @@ class SensorDataRecorder {
 
   // Buffer to hold rows of data
   List<List<double>> _dataBuffer = [];
-  List<double> _l2NormBuffer = []; // Store L2 norms
 
   // Initialize and create a CSV file (overwrite mode)
   Future<void> _initializeFile() async {
@@ -24,9 +23,9 @@ class SensorDataRecorder {
     // Open the file in write mode to overwrite any existing content
     _sink = _file.openWrite(mode: FileMode.write);
 
-    // Always write headers when creating/overwriting the file
+    // ✅ Add "L2_Norm" to the header
     _sink.writeln(
-      'Timestamp,Accelerometer_X,Accelerometer_Y,Accelerometer_Z,Gyroscope_X,Gyroscope_Y,Gyroscope_Z,Gyro_L2_Norm',
+      'Timestamp,Accelerometer_X,Accelerometer_Y,Accelerometer_Z,Gyroscope_X,Gyroscope_Y,Gyroscope_Z,L2_Norm',
     );
   }
 
@@ -37,8 +36,7 @@ class SensorDataRecorder {
 
     // Reinitialize the file and clear buffers
     await _initializeFile();
-    _dataBuffer.clear(); // Clear previous buffered data
-    _l2NormBuffer.clear(); // Clear L2 norm buffer
+    _dataBuffer.clear(); // Clear any previous buffered data
     _isRecording = true;
 
     print('Recording started. CSV file reset.');
@@ -59,36 +57,53 @@ class SensorDataRecorder {
   void bufferData(double timestamp, double accX, double accY, double accZ,
       double gyroX, double gyroY, double gyroZ) {
     if (_isRecording) {
-      // Compute the L2 norm for gyroscope data
-      double l2Norm = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ);
-
-      // Store the sensor data along with L2 norm
-      _dataBuffer
-          .add([timestamp, accX, accY, accZ, gyroX, gyroY, gyroZ, l2Norm]);
-      _l2NormBuffer.add(l2Norm); // Store L2 norm separately for threshold check
+      _dataBuffer.add([timestamp, accX, accY, accZ, gyroX, gyroY, gyroZ]);
     }
   }
 
   void saveBufferedData() {
     if (_isRecording && _dataBuffer.isNotEmpty) {
-      for (int i = 0; i < _dataBuffer.length; i++) {
-        List<double> row = _dataBuffer[i];
+      // Process data in pairs of two rows
+      for (int i = 0; i < _dataBuffer.length; i += 2) {
+        List<double> row1 = _dataBuffer[i];
 
-        // Format the row for CSV output
-        final csvRow = row.map((value) => value.toStringAsFixed(2)).toList();
-        _sink.writeln(ListToCsvConverter().convert([csvRow]));
+        if (i + 1 < _dataBuffer.length) {
+          // Replace gyroscope data in the first row with that from the second row
+          List<double> row2 = _dataBuffer[i + 1];
+
+          row1[4] = row2[4]; // Gyroscope_X
+          row1[5] = row2[5]; // Gyroscope_Y
+          row1[6] = row2[6]; // Gyroscope_Z
+
+          // ✅ Calculate L2 norm (Euclidean norm) for the updated gyroscope data
+          double l2Norm =
+              sqrt(row1[4] * row1[4] + row1[5] * row1[5] + row1[6] * row1[6]);
+
+          // ✅ Append L2 norm to the row
+          final csvRow = row1.map((value) => value.toStringAsFixed(2)).toList()
+            ..add(l2Norm.toStringAsFixed(2));
+
+          _sink.writeln(ListToCsvConverter().convert([csvRow]));
+        } else {
+          // If there's an odd row left, just save it as is
+          double l2Norm =
+              sqrt(row1[4] * row1[4] + row1[5] * row1[5] + row1[6] * row1[6]);
+
+          final csvRow = row1.map((value) => value.toStringAsFixed(2)).toList()
+            ..add(l2Norm.toStringAsFixed(2));
+
+          _sink.writeln(ListToCsvConverter().convert([csvRow]));
+        }
       }
 
       // Clear buffer after writing
       _dataBuffer.clear();
-      _l2NormBuffer.clear();
     }
   }
 
   // Clear the buffer (discard unsaved data)
   void clearBuffer() {
     _dataBuffer.clear(); // Clear the buffer without saving the data
-    _l2NormBuffer.clear(); // Also clear the L2 norm buffer
   }
 
   // Save a message to the CSV file
