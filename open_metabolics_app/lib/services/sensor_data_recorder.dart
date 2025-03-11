@@ -57,7 +57,10 @@ class SensorDataRecorder {
   void bufferData(double timestamp, double accX, double accY, double accZ,
       double gyroX, double gyroY, double gyroZ) {
     if (_isRecording) {
-      _dataBuffer.add([timestamp, accX, accY, accZ, gyroX, gyroY, gyroZ]);
+      // Convert relative timestamp to absolute timestamp (milliseconds since epoch)
+      final absoluteTimestamp = DateTime.now().millisecondsSinceEpoch / 1000.0;
+      _dataBuffer
+          .add([absoluteTimestamp, accX, accY, accZ, gyroX, gyroY, gyroZ]);
     }
   }
 
@@ -109,7 +112,8 @@ class SensorDataRecorder {
   // Save a message to the CSV file
   void saveMessage(double timestamp, String message) {
     if (_isRecording) {
-      _sink.writeln('$timestamp, $message');
+      final absoluteTimestamp = DateTime.now().millisecondsSinceEpoch / 1000.0;
+      _sink.writeln('$absoluteTimestamp, $message');
     }
   }
 }

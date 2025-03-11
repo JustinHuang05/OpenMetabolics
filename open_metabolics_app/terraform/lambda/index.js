@@ -1,8 +1,8 @@
-import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
+const { DynamoDBClient, PutItemCommand } = require("@aws-sdk/client-dynamodb");
 
 const client = new DynamoDBClient({ region: "us-east-1" });
 
-export const handler = async (event) => {
+exports.handler = async (event) => {
     try {
         console.log("Received event:", event);
 
@@ -42,7 +42,7 @@ export const handler = async (event) => {
             const timestamp = new Date(parseFloat(values[0]) * 1000).toISOString();
 
             const item = {
-                TableName: "RawSensorData",
+                TableName: process.env.DYNAMODB_TABLE,
                 Item: {
                     Timestamp: { S: timestamp },
                     Accelerometer_X: { N: values[1] },
@@ -70,4 +70,4 @@ export const handler = async (event) => {
             body: JSON.stringify({ error: error.message }),
         };
     }
-};
+}; 

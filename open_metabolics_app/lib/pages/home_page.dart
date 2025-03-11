@@ -183,47 +183,6 @@ class _SensorScreenState extends State<SensorScreen> {
     }
   }
 
-  // Future<void> _uploadCSVToServer() async {
-  //   try {
-  //     final directory = await getApplicationDocumentsDirectory();
-  //     final path = '${directory.path}/sensor_data.csv';
-  //     final file = File(path);
-
-  //     if (!await file.exists()) {
-  //       print('CSV file does not exist');
-  //       return;
-  //     }
-
-  //     // Define the AWS Lambda API Gateway endpoint
-  //     final String lambdaEndpoint =
-  //         "https://00mlue22tb.execute-api.us-east-1.amazonaws.com/default/sendRawDataToDB";
-
-  //     const jsonHardCodeTestData = {
-  //       "csv_data":
-  //           "Timestamp,Accelerometer_X,Accelerometer_Y,Accelerometer_Z,Gyroscope_X,Gyroscope_Y,Gyroscope_Z,Gyro_L2_Norm\n"
-  //               "3.14,0.1,0.26969,0.3,1.1,1.2,1.3,2.0\n"
-  //               "3.15,0.15,0.3,0.35,1.2,1.3,1.4,2.1\n"
-  //               "3.16,0.2,0.32,0.4,1.3,1.4,1.5,2.2\n"
-  //     };
-
-  //     // Send the structured JSON payload
-  //     final response = await http.post(
-  //       Uri.parse(lambdaEndpoint),
-  //       headers: {"Content-Type": "application/json"},
-  //       // body: jsonEncode({"records": jsonData}),
-  //       body: jsonEncode(jsonHardCodeTestData),
-  //     );
-
-  //     if (response.statusCode == 200) {
-  //       print("✅ CSV uploaded successfully");
-  //     } else {
-  //       print("❌ Failed to upload CSV: ${response.body}");
-  //     }
-  //   } catch (e) {
-  //     print("⚠️ Error uploading CSV: $e");
-  //   }
-  // }
-
   Future<void> _uploadCSVToServer() async {
     try {
       final directory = await getApplicationDocumentsDirectory();
@@ -235,7 +194,7 @@ class _SensorScreenState extends State<SensorScreen> {
         return;
       }
 
-      // ✅ Read CSV file line-by-line
+      // Read CSV file line-by-line
       List<String> csvLines = await file.readAsLines();
 
       if (csvLines.length <= 1) {
@@ -243,14 +202,14 @@ class _SensorScreenState extends State<SensorScreen> {
         return;
       }
 
-      // ✅ Extract header and data separately
+      // Extract header and data separately
       String header = csvLines.first;
       List<String> dataRows = csvLines.sublist(1); // Skip header row
 
-      // ✅ Print total number of rows
+      // Print total number of rows
       print("📊 Total rows in CSV (excluding header): ${dataRows.length}");
 
-      // ✅ Define batch size
+      // Define batch size
       int batchSize = 50;
       int totalBatches = (dataRows.length / batchSize).ceil();
 
@@ -258,19 +217,19 @@ class _SensorScreenState extends State<SensorScreen> {
         List<String> batch =
             dataRows.sublist(i, (i + batchSize).clamp(0, dataRows.length));
         String batchCsv =
-            "$header\n${batch.join("\n")}"; // ✅ Add header to each batch
+            "$header\n${batch.join("\n")}"; // Add header to each batch
 
-        // ✅ Construct JSON payload
+        // Construct JSON payload
         final Map<String, dynamic> payload = {"csv_data": batchCsv};
 
-        // ✅ AWS Lambda API Gateway endpoint
+        // AWS Lambda API Gateway endpoint
         final String lambdaEndpoint =
-            "https://00mlue22tb.execute-api.us-east-1.amazonaws.com/default/sendRawDataToDB";
+            "https://ervh1m8mnj.execute-api.us-east-1.amazonaws.com/dev/save-raw-sensor-data";
 
         print(
             "📤 Uploading batch ${i ~/ batchSize + 1}/$totalBatches with ${batch.length} rows");
 
-        // ✅ Send the structured JSON payload
+        // Send the structured JSON payload
         final response = await http.post(
           Uri.parse(lambdaEndpoint),
           headers: {"Content-Type": "application/json"},
@@ -282,7 +241,7 @@ class _SensorScreenState extends State<SensorScreen> {
         } else {
           print(
               "❌ Failed to upload batch ${i ~/ batchSize + 1}: ${response.body}");
-          break; // ✅ Stop on failure
+          break; // Stop on failure
         }
       }
     } catch (e) {
