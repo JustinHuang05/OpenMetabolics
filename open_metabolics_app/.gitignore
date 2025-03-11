@@ -42,9 +42,13 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Ignore Terraform provider binaries and local state
+# Ignore Terraform provider binaries and state files
 .terraform/
 .terraform.lock.hcl
 terraform.tfstate
 terraform.tfstate.backup
+
+# Ignore zip files (for AWS Lambda deployments)
+*.zip
+
 
