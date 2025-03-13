@@ -25,9 +25,11 @@ terraform/
 
 1. **Configure AWS Credentials**
 
+   To find this stuff go to IAM and make an access key
+
    ```bash
    aws configure
-   # Enter your AWS Access Key ID
+   # Enter your AWS Access Key ID 
    # Enter your AWS Secret Access Key
    # Enter your default region (e.g., us-east-1)
    ```
@@ -78,6 +80,14 @@ terraform/
    final String lambdaEndpoint = "https://<your-api-id>.execute-api.us-east-1.amazonaws.com/dev/save-raw-sensor-data";
    ```
 
+7. **Optional, destroy resources if needed**
+   ```bash
+      terraform destroy
+      terraform init -reconfigure
+      rm terraform.tfstate*   
+      terraform apply
+   ```
+
 ## Infrastructure Details
 
 The deployment creates:
@@ -107,6 +117,10 @@ The deployment creates:
    - Lambda execution role with permissions for:
      - DynamoDB PutItem
      - CloudWatch Logs
+
+
+1. **Authentication**
+   - make sure to replace client_id, and pool_id in amplify_config.dart
 
 ## Configuration
 

@@ -139,4 +139,96 @@ data "archive_file" "lambda_zip" {
   type        = "zip"
   source_file = "${path.module}/lambda/index.js"
   output_path = "${path.module}/lambda/function.zip"
+}
+
+# User Pool
+resource "aws_cognito_user_pool" "user_pool" {
+  name = "openmetabolics-users"
+
+  # Password policy
+  password_policy {
+    minimum_length    = 8
+    require_lowercase = true
+    require_numbers   = true
+    require_symbols   = true
+    require_uppercase = true
+  }
+
+  # Required attributes
+  schema {
+    name                = "email"
+    attribute_data_type = "String"
+    required           = true
+    mutable            = true
+
+    string_attribute_constraints {
+      min_length = 3
+      max_length = 100
+    }
+  }
+
+  schema {
+    name                = "given_name"  # First name
+    attribute_data_type = "String"
+    required           = true
+    mutable            = true
+
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 50
+    }
+  }
+
+  schema {
+    name                = "family_name"  # Last name
+    attribute_data_type = "String"
+    required           = true
+    mutable            = true
+
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 50
+    }
+  }
+
+  # Enable email verification
+  auto_verified_attributes = ["email"]
+  
+  verification_message_template {
+    email_subject = "Your OpenMetabolics Verification Code"
+    email_message = "Thank you for signing up! Your verification code is {####}"
+    default_email_option = "CONFIRM_WITH_CODE"
+  }
+
+  # Make sure email sending is enabled
+  email_configuration {
+    email_sending_account = "COGNITO_DEFAULT"
+  }
+
+  # Update the client to allow user signup
+  admin_create_user_config {
+    allow_admin_create_user_only = false
+  }
+}
+
+# User Pool Client
+resource "aws_cognito_user_pool_client" "client" {
+  name         = "openmetabolics-app"
+  user_pool_id = aws_cognito_user_pool.user_pool.id
+
+  explicit_auth_flows = [
+    "ALLOW_USER_PASSWORD_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH",
+    "ALLOW_USER_SRP_AUTH",
+    "ALLOW_CUSTOM_AUTH"
+  ]
+}
+
+# Output the important values
+output "cognito_pool_id" {
+  value = aws_cognito_user_pool.user_pool.id
+}
+
+output "cognito_client_id" {
+  value = aws_cognito_user_pool_client.client.id
 } 

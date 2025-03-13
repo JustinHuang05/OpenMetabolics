@@ -9,6 +9,9 @@ import 'package:csv/csv.dart';
 import '../services/sensor_channel.dart';
 import '../services/sensor_data_recorder.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
+import '../auth/auth_service.dart';
+import '../auth/login_page.dart';
 
 class SensorScreen extends StatefulWidget {
   @override
@@ -224,7 +227,7 @@ class _SensorScreenState extends State<SensorScreen> {
 
         // AWS Lambda API Gateway endpoint
         final String lambdaEndpoint =
-            "https://ervh1m8mnj.execute-api.us-east-1.amazonaws.com/dev/save-raw-sensor-data";
+            "https://b8e3dexk76.execute-api.us-east-1.amazonaws.com/dev/save-raw-sensor-data";
 
         print(
             "📤 Uploading batch ${i ~/ batchSize + 1}/$totalBatches with ${batch.length} rows");
@@ -256,8 +259,35 @@ class _SensorScreenState extends State<SensorScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('OpenMetabolics'),
+        title: Text(
+          'OpenMetabolics',
+          style: TextStyle(color: textGray),
+        ),
         backgroundColor: lightPurple,
+        actions: [
+          IconButton(
+            icon: Icon(
+              Icons.logout,
+              color: textGray,
+            ),
+            onPressed: () async {
+              final authService =
+                  Provider.of<AuthService>(context, listen: false);
+              try {
+                await authService.signOut();
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => LoginPage()),
+                  (Route<dynamic> route) => false,
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                      content: Text('Error signing out. Please try again.')),
+                );
+              }
+            },
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
