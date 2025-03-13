@@ -10,24 +10,13 @@ class AuthService {
   String loginErrorCode = '';
   String signupErrorCode = '';
 
-  // Create user object based on FirebaseUser
-  theUser? _userFromFirebaseUser(dynamic user) {
-    return user != null ? theUser(uid: "dummy-uid") : null;
-  }
-
-  // Auth change user stream
-  Stream<theUser?> get user {
-    // return _auth.authStateChanges().map(_userFromFirebaseUser);
-    return Stream.value(null); // Always return not authenticated for now
-  }
-
   // Simplified auth methods for now
   Future<bool> signIn(String email, String password) async {
     try {
-      print('Attempting to sign in user: $email');
+      print('Attempting to sign in user: ${email.toLowerCase()}');
 
       final result = await Amplify.Auth.signIn(
-        username: email,
+        username: email.toLowerCase(),
         password: password,
       );
 
@@ -48,13 +37,6 @@ class AuthService {
     }
   }
 
-  Future<bool> createUser(
-      String email, String password, String firstName, String lastName) async {
-    // Temporary mock user creation
-    await Future.delayed(Duration(seconds: 1));
-    return true; // Always succeed for now
-  }
-
   // Sign out
   Future<void> signOut() async {
     try {
@@ -70,32 +52,40 @@ class AuthService {
   Future<bool> signUp(
       String email, String password, String firstName, String lastName) async {
     try {
-      print('Starting signup process for email: $email'); // Debug log
+      print('Starting signup process for email: ${email.toLowerCase()}');
 
       final userAttributes = <CognitoUserAttributeKey, String>{
-        CognitoUserAttributeKey.email: email,
+        CognitoUserAttributeKey.email: email.toLowerCase(),
         CognitoUserAttributeKey.givenName: firstName,
         CognitoUserAttributeKey.familyName: lastName,
       };
 
       final result = await Amplify.Auth.signUp(
-        username: email,
+        username: email.toLowerCase(),
         password: password,
         options: CognitoSignUpOptions(
           userAttributes: userAttributes,
         ),
       );
 
-      print('Signup result: ${result.isSignUpComplete}'); // Debug log
-      print('Next step: ${result.nextStep}'); // Debug log
+      print('Signup result: ${result.isSignUpComplete}');
+      print('Next step: ${result.nextStep}');
+      print('SignUpStep: ${result.nextStep.signUpStep}');
 
       // Store password for later use
       _tempPassword = password;
 
-      // If signup is successful, navigate to verification regardless of isSignUpComplete
-      return true; // Changed to always return true if we reach this point
+      // Check for AuthSignUpStep.confirmSignUp instead of string comparison
+      if (result.nextStep.signUpStep == AuthSignUpStep.confirmSignUp) {
+        print('Signup successful, verification code sent');
+        return true;
+      } else {
+        print(
+            'Signup failed, unexpected next step: ${result.nextStep.signUpStep}');
+        return false;
+      }
     } catch (e) {
-      print('Detailed signup error: $e'); // Debug log
+      print('Detailed signup error: $e');
       return false;
     }
   }
@@ -103,10 +93,11 @@ class AuthService {
   // Add new method for verification
   Future<bool> verifyEmail(String email, String code) async {
     try {
-      print('Starting verification for email: $email with code: $code');
+      print(
+          'Starting verification for email: ${email.toLowerCase()} with code: $code');
 
       final result = await Amplify.Auth.confirmSignUp(
-        username: email,
+        username: email.toLowerCase(),
         confirmationCode: code,
       );
 
@@ -123,7 +114,7 @@ class AuthService {
         }
 
         final signInResult = await Amplify.Auth.signIn(
-          username: email,
+          username: email.toLowerCase(),
           password: password,
         );
 

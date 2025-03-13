@@ -141,7 +141,12 @@ data "archive_file" "lambda_zip" {
   output_path = "${path.module}/lambda/function.zip"
 }
 
-# User Pool
+# First, add SES configuration (add this before the user pool)
+resource "aws_ses_email_identity" "sender" {
+  email = "justin.sy.huang@gmail.com"
+}
+
+# Then update the user pool email configuration
 resource "aws_cognito_user_pool" "user_pool" {
   name = "openmetabolics-users"
 
@@ -202,7 +207,9 @@ resource "aws_cognito_user_pool" "user_pool" {
 
   # Make sure email sending is enabled
   email_configuration {
-    email_sending_account = "COGNITO_DEFAULT"
+    email_sending_account = "DEVELOPER"
+    from_email_address    = "justin.sy.huang@gmail.com"
+    source_arn           = aws_ses_email_identity.sender.arn
   }
 
   # Update the client to allow user signup

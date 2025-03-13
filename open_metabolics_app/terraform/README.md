@@ -29,7 +29,7 @@ terraform/
 
    ```bash
    aws configure
-   # Enter your AWS Access Key ID 
+   # Enter your AWS Access Key ID
    # Enter your AWS Secret Access Key
    # Enter your default region (e.g., us-east-1)
    ```
@@ -76,6 +76,7 @@ terraform/
 6. **Update Flutter App**
    After deployment completes, you'll see the API Gateway endpoint URL in the outputs.
    Update your Flutter app's `_uploadCSVToServer` function in `lib/pages/home_page.dart`:
+
    ```dart
    final String lambdaEndpoint = "https://<your-api-id>.execute-api.us-east-1.amazonaws.com/dev/save-raw-sensor-data";
    ```
@@ -84,7 +85,7 @@ terraform/
    ```bash
       terraform destroy
       terraform init -reconfigure
-      rm terraform.tfstate*   
+      rm terraform.tfstate*
       terraform apply
    ```
 
@@ -114,12 +115,12 @@ The deployment creates:
    - Integration: Lambda proxy integration
 
 4. **IAM Roles and Policies**
+
    - Lambda execution role with permissions for:
      - DynamoDB PutItem
      - CloudWatch Logs
 
-
-1. **Authentication**
+5. **Authentication**
    - make sure to replace client_id, and pool_id in amplify_config.dart
 
 ## Configuration
@@ -183,3 +184,27 @@ When prompted, type `yes` to confirm the destruction of resources.
 2. If the Lambda function fails to deploy, check the CloudWatch logs
 3. If the DynamoDB table creation fails, ensure the table name is unique in your AWS account
 4. If you get "Not Found" errors, verify the API Gateway endpoint URL and route path match exactly
+
+## AWS SES Email Configuration
+
+### Important: SES Production Access Required
+
+Before deploying this application, you need to request production access for Amazon SES (Simple Email Service). This is a one-time setup that cannot be automated through Terraform.
+
+1. Go to AWS Console > SES > Account Dashboard
+2. Click "Request Production Access" or "Request Sending Limit Increase"
+3. Fill out the form:
+   - Select "SES Production Access"
+   - Region: us-east-1
+   - Limit: SES Sending Limits
+   - New limit value: (e.g., 50,000 per day)
+   - Use case description: User verification emails with Cognito
+   - Mail type: Transactional
+
+**Note:** Until production access is granted, SES will be in "sandbox" mode where:
+
+- Both sender and recipient emails must be verified in SES
+- Daily sending limits are restricted
+- Only verified email addresses can receive emails
+
+AWS typically responds to production access requests within 24-48 hours.

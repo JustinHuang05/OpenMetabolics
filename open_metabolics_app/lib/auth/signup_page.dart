@@ -227,6 +227,8 @@ class _SignUpPageState extends State<SignUpPage> {
                                 SnackBar(content: Text('Signing up...')),
                               );
 
+                              print('Starting signup process...'); // Debug log
+
                               final success = await authService.signUp(
                                 emailCont.text,
                                 passCont.text,
@@ -236,6 +238,8 @@ class _SignUpPageState extends State<SignUpPage> {
 
                               // Clear the "Signing up..." message
                               ScaffoldMessenger.of(context).clearSnackBars();
+
+                              print('Signup result: $success'); // Debug log
 
                               if (success) {
                                 // Show success message and navigate to verification
@@ -247,12 +251,13 @@ class _SignUpPageState extends State<SignUpPage> {
                                   ),
                                 );
 
-                                // Navigate to verification page
+                                print(
+                                    'Navigating to verification page...'); // Debug log
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (context) => VerificationPage(
-                                      email: emailCont.text,
+                                      email: emailCont.text.toLowerCase(),
                                       password: passCont.text,
                                     ),
                                   ),
