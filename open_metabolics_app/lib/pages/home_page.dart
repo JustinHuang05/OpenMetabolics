@@ -188,6 +188,15 @@ class _SensorScreenState extends State<SensorScreen> {
 
   Future<void> _uploadCSVToServer() async {
     try {
+      // Get the current user's email
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userEmail = await authService.getCurrentUserEmail();
+
+      if (userEmail == null) {
+        print("❌ No user email found. Please ensure user is logged in.");
+        return;
+      }
+
       final directory = await getApplicationDocumentsDirectory();
       final path = '${directory.path}/sensor_data.csv';
       final file = File(path);
@@ -222,8 +231,11 @@ class _SensorScreenState extends State<SensorScreen> {
         String batchCsv =
             "$header\n${batch.join("\n")}"; // Add header to each batch
 
-        // Construct JSON payload
-        final Map<String, dynamic> payload = {"csv_data": batchCsv};
+        // Construct JSON payload with user email
+        final Map<String, dynamic> payload = {
+          "csv_data": batchCsv,
+          "user_email": userEmail
+        };
 
         // AWS Lambda API Gateway endpoint
         final String lambdaEndpoint =

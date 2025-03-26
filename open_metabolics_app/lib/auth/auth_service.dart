@@ -133,4 +133,19 @@ class AuthService {
 
   // Add this to store password temporarily
   static String? _tempPassword;
+
+  // Get current user's email
+  Future<String?> getCurrentUserEmail() async {
+    try {
+      final currentUser = await Amplify.Auth.getCurrentUser();
+      final attributes = await Amplify.Auth.fetchUserAttributes();
+      final emailAttribute = attributes.firstWhere(
+        (element) => element.userAttributeKey == CognitoUserAttributeKey.email,
+      );
+      return emailAttribute.value;
+    } catch (e) {
+      print('Error getting user email: $e');
+      return null;
+    }
+  }
 }

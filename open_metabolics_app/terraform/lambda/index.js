@@ -21,10 +21,10 @@ exports.handler = async (event) => {
             }
         }
 
-        if (!body.csv_data) {
+        if (!body.csv_data || !body.user_email) {
             return {
                 statusCode: 400,
-                body: JSON.stringify({ error: "Missing csv_data field" }),
+                body: JSON.stringify({ error: "Missing required fields (csv_data or user_email)" }),
             };
         }
 
@@ -45,6 +45,7 @@ exports.handler = async (event) => {
                 TableName: process.env.DYNAMODB_TABLE,
                 Item: {
                     Timestamp: { S: timestamp },
+                    UserEmail: { S: body.user_email.toLowerCase() },
                     Accelerometer_X: { N: values[1] },
                     Accelerometer_Y: { N: values[2] },
                     Accelerometer_Z: { N: values[3] },

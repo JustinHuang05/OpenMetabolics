@@ -16,10 +16,16 @@ resource "aws_dynamodb_table" "raw_sensor_data" {
   name           = var.dynamodb_table_name
   billing_mode   = "PAY_PER_REQUEST"
   hash_key       = "Timestamp"
+  range_key      = "UserEmail"
   stream_enabled = false
 
   attribute {
     name = "Timestamp"
+    type = "S"
+  }
+
+  attribute {
+    name = "UserEmail"
     type = "S"
   }
 
