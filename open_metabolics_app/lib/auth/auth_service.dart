@@ -96,6 +96,9 @@ class AuthService {
       print(
           'Starting verification for email: ${email.toLowerCase()} with code: $code');
 
+      //just for testing basically:
+      await Amplify.Auth.signOut();
+
       final result = await Amplify.Auth.confirmSignUp(
         username: email.toLowerCase(),
         confirmationCode: code,
