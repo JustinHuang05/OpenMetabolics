@@ -148,4 +148,15 @@ class AuthService {
       return null;
     }
   }
+
+  // Check if user is currently signed in
+  Future<bool> isSignedIn() async {
+    try {
+      final currentUser = await Amplify.Auth.getCurrentUser();
+      return currentUser != null;
+    } catch (e) {
+      print('Error checking sign in status: $e');
+      return false;
+    }
+  }
 }
