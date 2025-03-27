@@ -1,4 +1,4 @@
-const { DynamoDBClient, PutItemCommand } = require("@aws-sdk/client-dynamodb");
+const { DynamoDBClient, PutItemCommand, GetItemCommand, QueryCommand } = require("@aws-sdk/client-dynamodb");
 
 const client = new DynamoDBClient({ region: "us-east-1" });
 
@@ -21,10 +21,10 @@ exports.handler = async (event) => {
             }
         }
 
-        if (!body.csv_data || !body.user_email) {
+        if (!body.csv_data || !body.user_email || !body.session_id) {
             return {
                 statusCode: 400,
-                body: JSON.stringify({ error: "Missing required fields (csv_data or user_email)" }),
+                body: JSON.stringify({ error: "Missing required fields (csv_data, user_email, or session_id)" }),
             };
         }
 
@@ -44,6 +44,7 @@ exports.handler = async (event) => {
             const item = {
                 TableName: process.env.DYNAMODB_TABLE,
                 Item: {
+                    SessionId: { S: body.session_id },
                     Timestamp: { S: timestamp },
                     UserEmail: { S: body.user_email.toLowerCase() },
                     Accelerometer_X: { N: values[1] },
@@ -52,8 +53,8 @@ exports.handler = async (event) => {
                     Gyroscope_X: { N: values[4] },
                     Gyroscope_Y: { N: values[5] },
                     Gyroscope_Z: { N: values[6] },
-                    Gyro_L2_Norm: { N: values[7] },
-                },
+                    Gyro_L2_Norm: { N: values[7] }
+                }
             };
 
             await client.send(new PutItemCommand(item));
@@ -61,7 +62,10 @@ exports.handler = async (event) => {
 
         return {
             statusCode: 200,
-            body: JSON.stringify({ message: "CSV data successfully saved to DynamoDB!" }),
+            body: JSON.stringify({ 
+                message: "CSV data successfully saved to DynamoDB!",
+                session_id: body.session_id
+            }),
         };
 
     } catch (error) {

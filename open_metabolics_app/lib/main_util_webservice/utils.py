@@ -1,5 +1,5 @@
 """
-Copyright (c) 2024 Harvard Ability lab
+Copyright (c) 2025 Harvard Ability lab
 Title: "A smartphone activity monitor that accurately estimates energy expenditure"
 """
 
@@ -16,26 +16,6 @@ def basalEst(height, weight, age, gender, stand_aug_fact, kcalPerDay2Watt=0.0484
     """Estimate basal metabolic rate"""
     offset = 5 if gender == 'M' else -161
     return (10.0 * weight + 625.0 * height - 5.0 * age + offset) * kcalPerDay2Watt * stand_aug_fact
-
-def get_active_phase(gyro_l2_norm, gyro_norm_win, gyro_norm_thres):
-    """Detect active phases in gyroscopic data based on norm threshold over a sliding window"""
-    idx_process = []
-    for idx in range(len(gyro_l2_norm)):
-        if idx + gyro_norm_win >= len(gyro_l2_norm):
-            break
-        cur_win_gyro_norm = gyro_l2_norm[idx:idx + gyro_norm_win]
-        if np.mean(cur_win_gyro_norm) > gyro_norm_thres:
-            idx_process.append(idx)
-    return idx_process
-
-def find_consecutive(indices):
-    """Group consecutive indices together"""
-    result = []
-    for _, group in groupby(enumerate(indices), lambda x: x[0] - x[1]):
-        group = list(map(lambda x: x[1], group))
-        if len(group) > 1:
-            result.append(group)
-    return result
 
 def rotm_x(theta):
     """Create a rotation matrix for rotation around the x-axis"""
@@ -108,7 +88,7 @@ def segment_data(peak_index_list, data_to_segment, stride_detect_window):
     for i in range(len(peak_index_list) - 1):
         gait_start_index = peak_index_list[i]
         gait_stop_index = peak_index_list[i + 1]
-        if (gait_stop_index - gait_start_index) <= stride_detect_window and (gait_stop_index - gait_start_index) > 35:
+        if (gait_stop_index - gait_start_index) <= stride_detect_window:
             cur_gait_data = processRawGait(data_to_segment, gait_start_index, gait_stop_index)
             gait_data.append(cur_gait_data)
     return np.array(gait_data)
@@ -144,31 +124,16 @@ def processRawGait_model(data_array, start_ind, end_ind, weight, height, correct
 
     return model_input
 
-def estimateMetabolics(model, gait_data, peak_index, weight, height, cur_basal, correction_model, stride_detect_window):
-    """Estimate energy expenditure per step for a single detected bout."""
-    
+def estimateMetabolics(model, time, gait_data, peak_index, weight, height, correction_model, stride_detect_window):
+    """Estimate energy expenditure using model predictions based on processed gait data"""
+    time_all = []
     ee_all = []
-    for step_idx in range(len(peak_index) - 1):
-        gait_start_index = peak_index[step_idx]
-        gait_stop_index = peak_index[step_idx + 1]
-
-        if 35 < (gait_stop_index - gait_start_index) <= stride_detect_window:
-            # Process raw gait data and prepare input
-            model_input = processRawGait_model(
-                gait_data, gait_start_index, gait_stop_index, weight, height, correction_model, None
-            ).reshape(1, -1)
-
-            # Log feature size
-            print(f"Step {step_idx + 1}: Processed model input has {model_input.shape[1]} features.")
-            
-            # Perform model prediction
+    for i in range(len(peak_index) - 1):
+        gait_start_index = peak_index[i]
+        gait_stop_index = peak_index[i + 1]
+        if (gait_stop_index - gait_start_index) <= stride_detect_window:
+            model_input = processRawGait_model(gait_data, gait_start_index, gait_stop_index, weight, height, correction_model, None).reshape(1, -1)
             ee_est = model.predict(model_input)[0]
-            print(f"Step {step_idx + 1}: Predicted energy expenditure = {ee_est:.2f} kcal/min.")
-            
             ee_all.append(ee_est)
-        else:
-            print(f"Step {step_idx + 1}: Invalid step duration, using basal metabolic rate.")
-            ee_all.append(cur_basal)
-
-    return ee_all
-
+            time_all.append(time[gait_start_index])
+    return time_all, ee_all

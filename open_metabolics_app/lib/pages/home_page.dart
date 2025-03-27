@@ -225,16 +225,21 @@ class _SensorScreenState extends State<SensorScreen> {
       int batchSize = 50;
       int totalBatches = (dataRows.length / batchSize).ceil();
 
+      // Generate a unique session ID using timestamp and user email
+      final String sessionId =
+          '${DateTime.now().millisecondsSinceEpoch}_${userEmail.replaceAll('@', '_').replaceAll('.', '_')}';
+
       for (int i = 0; i < dataRows.length; i += batchSize) {
         List<String> batch =
             dataRows.sublist(i, (i + batchSize).clamp(0, dataRows.length));
         String batchCsv =
             "$header\n${batch.join("\n")}"; // Add header to each batch
 
-        // Construct JSON payload with user email
+        // Include session_id in the payload
         final Map<String, dynamic> payload = {
           "csv_data": batchCsv,
-          "user_email": userEmail
+          "user_email": userEmail,
+          "session_id": sessionId
         };
 
         // AWS Lambda API Gateway endpoint

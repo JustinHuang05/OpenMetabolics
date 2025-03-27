@@ -11,13 +11,18 @@ provider "aws" {
   region = var.aws_region
 }
 
-# DynamoDB Table
+# DynamoDB Table for raw sensor data
 resource "aws_dynamodb_table" "raw_sensor_data" {
   name           = var.dynamodb_table_name
   billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "Timestamp"
-  range_key      = "UserEmail"
+  hash_key       = "SessionId"
+  range_key      = "Timestamp"
   stream_enabled = false
+
+  attribute {
+    name = "SessionId"
+    type = "S"
+  }
 
   attribute {
     name = "Timestamp"
@@ -27,6 +32,53 @@ resource "aws_dynamodb_table" "raw_sensor_data" {
   attribute {
     name = "UserEmail"
     type = "S"
+  }
+
+  global_secondary_index {
+    name               = "UserEmailIndex"
+    hash_key           = "UserEmail"
+    range_key          = "Timestamp"
+    projection_type    = "ALL"
+    write_capacity     = 5
+    read_capacity      = 5
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# DynamoDB Table for energy expenditure results
+resource "aws_dynamodb_table" "energy_expenditure_results" {
+  name           = "${var.project_name}-energy-results"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "SessionId"
+  range_key      = "Timestamp"
+  stream_enabled = false
+
+  attribute {
+    name = "SessionId"
+    type = "S"
+  }
+
+  attribute {
+    name = "Timestamp"
+    type = "S"
+  }
+
+  attribute {
+    name = "UserEmail"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name               = "UserEmailIndex"
+    hash_key           = "UserEmail"
+    range_key          = "Timestamp"
+    projection_type    = "ALL"
+    write_capacity     = 5
+    read_capacity      = 5
   }
 
   tags = {
@@ -64,9 +116,16 @@ resource "aws_iam_role_policy" "lambda_policy" {
       {
         Effect = "Allow"
         Action = [
-          "dynamodb:PutItem"
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query"
         ]
-        Resource = aws_dynamodb_table.raw_sensor_data.arn
+        Resource = [
+          aws_dynamodb_table.raw_sensor_data.arn,
+          "${aws_dynamodb_table.raw_sensor_data.arn}/index/UserEmailIndex",
+          aws_dynamodb_table.energy_expenditure_results.arn,
+          "${aws_dynamodb_table.energy_expenditure_results.arn}/index/UserEmailIndex"
+        ]
       },
       {
         Effect = "Allow"
@@ -145,6 +204,62 @@ data "archive_file" "lambda_zip" {
   type        = "zip"
   source_file = "${path.module}/lambda/index.js"
   output_path = "${path.module}/lambda/function.zip"
+}
+
+# Archive Lambda function code for energy expenditure processing
+data "archive_file" "energy_expenditure_zip" {
+  type        = "zip"
+  source_file = "${path.module}/lambda/process_energy_expenditure.js"
+  output_path = "${path.module}/lambda/energy_expenditure_function.zip"
+}
+
+# Lambda Function for energy expenditure processing
+resource "aws_lambda_function" "energy_expenditure_handler" {
+  filename         = data.archive_file.energy_expenditure_zip.output_path
+  function_name    = "process-energy-expenditure"
+  role            = aws_iam_role.lambda_role.arn
+  handler         = "process_energy_expenditure.handler"
+  runtime         = "nodejs18.x"
+  timeout         = 300  # 5 minutes
+  memory_size     = 1024
+  source_code_hash = data.archive_file.energy_expenditure_zip.output_base64sha256
+
+  environment {
+    variables = {
+      RAW_SENSOR_TABLE = aws_dynamodb_table.raw_sensor_data.name
+      RESULTS_TABLE    = aws_dynamodb_table.energy_expenditure_results.name
+    }
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# API Gateway integration for energy expenditure processing
+resource "aws_apigatewayv2_integration" "energy_expenditure_integration" {
+  api_id           = aws_apigatewayv2_api.lambda_api.id
+  integration_type = "AWS_PROXY"
+
+  connection_type    = "INTERNET"
+  description       = "Energy expenditure processing Lambda integration"
+  integration_method = "POST"
+  integration_uri    = aws_lambda_function.energy_expenditure_handler.invoke_arn
+}
+
+resource "aws_apigatewayv2_route" "energy_expenditure_route" {
+  api_id    = aws_apigatewayv2_api.lambda_api.id
+  route_key = "POST /process-energy-expenditure"
+  target    = "integrations/${aws_apigatewayv2_integration.energy_expenditure_integration.id}"
+}
+
+resource "aws_lambda_permission" "energy_expenditure_api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.energy_expenditure_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
 }
 
 # First, add SES configuration (add this before the user pool)

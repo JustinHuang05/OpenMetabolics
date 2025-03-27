@@ -1,5 +1,5 @@
 """
-Copyright (c) 2024 Harvard Ability Lab
+Copyright (c) 2025 Harvard Ability Lab
 Title: "A smartphone activity monitor that accurately estimates energy expenditure"
 """
 
@@ -7,11 +7,12 @@ import os
 import numpy as np
 import pandas as pd
 import pickle
+import matplotlib.pyplot as plt
 from scipy import signal
 from scipy.linalg import norm
 import utils
 
-"""Load subject information from CSV"""
+# Load subject information from a CSV file
 subj_csv = pd.read_csv('./subject_info.csv')
 target_subj = 'S1'
 subj_info = {
@@ -22,76 +23,124 @@ subj_info = {
     'age': subj_csv.loc[subj_csv['subject'] == target_subj, 'age'].values[0]
 }
 
-"""Compute the basal metabolic rate"""
-stand_aug_fact = 1.41
+# Compute the basal metabolic 
+stand_aug_fact = 1.41  # Standing augmentation factor
 height = subj_info['height']
 weight = subj_info['weight']
 age = subj_info['age']
 gender = subj_info['gender']
 cur_basal = utils.basalEst(height, weight, age, gender, stand_aug_fact, kcalPerDay2Watt=0.048426)
 
-"""Load energy expenditure estimation and pocket motion correction models"""
-data_driven_model = pickle.load(open('./model_weight/data_driven_ee_model.pkl', 'rb'))
-pocket_motion_correction_model = pickle.load(open('./model_weight/pocket_motion_correction_model.pkl', 'rb'))
+# Load energy expenditure estimation and pocket motion correction models
+data_driven_model = pickle.load(open('./data_driven_ee_model.pkl', 'rb'))
+pocket_motion_correction_model = pickle.load(open('./pocket_motion_correction_model.pkl', 'rb'))
 
-"""Load smartphone data (assumed to be one active bout)"""
-csv_path = './example_data/data_segment.csv'
+# Load daily smartphone data
+csv_path = './daily_sp_pocket_data.csv'
 df_sp = pd.read_csv(csv_path).values
 
-"""Constants for low-pass filter"""
+# Constants for the low-pass filter
 sampling_freq = 50  # Sampling frequency in Hz
-crossover_freq = 6  # Crossover frequency for low-pass filter in Hz
+cutoff_freq = 6  # Crossover frequency for low-pass filter in Hz
 filt_order = 4  # Filter order
 
-"""Low-pass filter parameters"""
-b, a = signal.butter(filt_order, crossover_freq, btype='low', fs=sampling_freq)
+# Constants for bout detection algorithm
+sliding_win = 200  # Window size for sliding window in samples (4 seconds at 50Hz)
+gyro_norm_thres = 0.5  # Threshold for gyro norm in rad/s
 
-"""Filter the collected smartphone data"""
-time_sp = df_sp[:, 0]
-gyro_sp = signal.filtfilt(b, a, df_sp[:, 1:4], axis=0)  # Filter gyro data
-acc_sp = signal.filtfilt(b, a, df_sp[:, 4:], axis=0)  # Filter accelerometer data
+# Define low-pass filter parameters
+b, a = signal.butter(filt_order, cutoff_freq, btype='low', fs=sampling_freq)
 
-"""Step 1: Orientation alignment: Align with the superior-inferior axis of the thigh"""
-opt_rotm_z_pocket, theta_z = utils.get_rotate_z(acc_sp)
-cur_pocket_gyro_rot_zx = np.matmul(gyro_sp, opt_rotm_z_pocket)
+# Filter the collected smartphone data
+time_sp = df_sp[:, 0]  # Time data
+gyro_sp = df_sp[:, 1:4]  # Gyroscope data
+acc_sp = df_sp[:, 4:]  # Accelerometer data
 
-"""Find principal axis of angular velocity"""
-prin_idx_pocket = utils.find_prin_axis(cur_pocket_gyro_rot_zx)
-prin_gyro_pocket = cur_pocket_gyro_rot_zx[:, prin_idx_pocket]
+# Initialize lists to collect energy expenditure data
+ee_all = []
+time_all = []
 
-if np.abs(np.max(prin_gyro_pocket)) < np.abs(np.min(prin_gyro_pocket)):
-    prin_gyro_pocket = -prin_gyro_pocket
+start_idx = 0
+n_samples = len(gyro_sp)
 
-"""Detect peaks in the principal angular velocity (step detection)"""
-gait_peaks = utils.peak_detect(prin_gyro_pocket)
+while start_idx + sliding_win <= n_samples:
+    # Step 1: Process each detected active bout
+    cur_window_time = time_sp[start_idx:start_idx+sliding_win]
+    cur_pocket_gyro = gyro_sp[start_idx:start_idx+sliding_win, :]
+    cur_pocket_acc = acc_sp[start_idx:start_idx+sliding_win, :]
 
-"""Step 2: Orientation alignment: Align with the mediolateral axis of the thigh"""
-if len(gait_peaks) > 3:  # Ensure there are enough peaks to detect steps
-    gait_data_pocket = utils.segment_data(gait_peaks, cur_pocket_gyro_rot_zx, stride_detect_window=2*sampling_freq)
-    
-    if len(gait_data_pocket) >= 1:
-        avg_gait_data_pocket = np.mean(gait_data_pocket, axis=0)
-        opt_rotm_y_pocket, theta_y = utils.get_rotate_y(avg_gait_data_pocket, prin_idx_pocket)
-        opt_rotm_pocket = np.matmul(opt_rotm_z_pocket, opt_rotm_y_pocket)
-        cur_pocket_gyro_cal = np.matmul(gyro_sp, opt_rotm_pocket)
+    # Calculate the L2 norm of gyro data within the current window
+    l2_norm_gyro = np.linalg.norm(cur_pocket_gyro)
 
-        """Step 3: Compute EE for each step within the bout"""
-        ee_all = []
-        for step_idx in range(len(gait_peaks) - 1):
-            gait_start_index = gait_peaks[step_idx]
-            gait_stop_index = gait_peaks[step_idx + 1]
+    if l2_norm_gyro > gyro_norm_thres:
+        # Apply a low-pass filter to the current window signals
+        cur_pocket_gyro = signal.filtfilt(b, a, cur_pocket_gyro, axis=0)
+        cur_pocket_acc = signal.filtfilt(b, a, cur_pocket_acc, axis=0)
 
-            if 35 < (gait_stop_index - gait_start_index) <= 2 * sampling_freq:  # Ensure valid step duration
-                ee_est = utils.estimateMetabolics(
-                    data_driven_model, cur_pocket_gyro_cal, [gait_start_index, gait_stop_index],
-                    weight, height, cur_basal,
-                    stride_detect_window=2*sampling_freq,
-                    correction_model=pocket_motion_correction_model
-                )
-                ee_all.append(ee_est)
+        # Step 2: Orientation alignment with the superior-inferior axis of the thigh
+        opt_rotm_z_pocket, theta_z = utils.get_rotate_z(cur_pocket_acc)
+        cur_pocket_gyro_rot_zx = np.matmul(cur_pocket_gyro, opt_rotm_z_pocket)
 
-        """Flatten EE data"""
-        ee_all = sum(ee_all, [])
-        print(f"Energy expenditure per step: {ee_all}")
-else:
-    print("Not enough peaks detected for step-wise EE estimation.")
+        # Find principal axis of angular velocity
+        prin_idx_pocket = utils.find_prin_axis(cur_pocket_gyro_rot_zx)
+        prin_gyro_pocket = cur_pocket_gyro_rot_zx[:, prin_idx_pocket]
+        
+        if np.abs(np.max(prin_gyro_pocket)) < np.abs(np.min(prin_gyro_pocket)):
+            prin_gyro_pocket = -prin_gyro_pocket
+
+        # Detect peaks in the principal angular velocity
+        gait_peaks = utils.peak_detect(prin_gyro_pocket)
+        
+        if len(gait_peaks) > 1:  # Consider it a bout if more than 1 peak is detected
+            gait_data_pocket = utils.segment_data(gait_peaks, cur_pocket_gyro_rot_zx, sliding_win)
+            if len(gait_data_pocket) < 1: # if there is no data segmented
+                continue
+
+            # Step 2: Orientation alignment with the mediolateral axis of the thigh
+            avg_gait_data_pocket = np.mean(gait_data_pocket, axis=0)
+            opt_rotm_y_pocket, theta_y = utils.get_rotate_y(avg_gait_data_pocket, prin_idx_pocket)
+            opt_rotm_pocket = np.matmul(opt_rotm_z_pocket, opt_rotm_y_pocket)
+            cur_pocket_gyro_cal = np.matmul(cur_pocket_gyro, opt_rotm_pocket) 
+
+            # Adjust rotation if necessary
+            # If the observed positive peaks are smaller than negative peaks, rotate along y-axis of 180 degrees
+            pos_idx = cur_pocket_gyro_cal[:, -1] > 0
+            neg_idx = cur_pocket_gyro_cal[:, -1] < 0
+            gyro_z_norm_pos = norm(cur_pocket_gyro_cal[pos_idx, -1], ord=2)
+            gyro_z_norm_neg = norm(cur_pocket_gyro_cal[neg_idx, -1], ord=2)
+            
+            if gyro_z_norm_pos <= gyro_z_norm_neg:
+                opt_rotm_pocket = np.matmul(opt_rotm_pocket, utils.rotm_y(np.pi))
+                theta_y += 180
+                if theta_y > 180:
+                    theta_y -= 360
+                cur_pocket_gyro_cal = np.matmul(cur_pocket_gyro, opt_rotm_pocket)
+
+            # Step 3: Gait segmentation and energy expenditure estimation
+            gait_peaks = utils.peak_detect(cur_pocket_gyro_cal[:, -1])
+
+            ee_time, ee_est = utils.estimateMetabolics(
+                model= data_driven_model, time= cur_window_time,
+                gait_data = cur_pocket_gyro_cal, peak_index= gait_peaks,
+                weight = weight, height= height, stride_detect_window=sliding_win, 
+                correction_model=pocket_motion_correction_model
+            )
+            for cur_ee_time, cur_ee_est in zip(ee_time, ee_est):
+                time_all.append(cur_ee_time)
+                ee_all.append(cur_ee_est)
+        else:
+            # If it's not a detectable bout, assign basal rate
+            time_all.append(np.median(cur_window_time))
+            ee_all.append(cur_basal)
+    else:
+        # If no movement is detected, assign basal rate
+        time_all.append(np.median(cur_window_time))
+        ee_all.append(cur_basal)
+
+    # Move to the next window
+    start_idx += sliding_win
+
+# Print all energy expenditure predictions
+print("\nEnergy Expenditure Predictions (in Watts):")
+for i, ee in enumerate(ee_all):
+    print(f"Time {time_all[i]:.2f}s: {ee:.2f} W")
