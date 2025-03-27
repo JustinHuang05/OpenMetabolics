@@ -36,7 +36,7 @@ class _SensorScreenState extends State<SensorScreen> {
   // List to store CSV data for displaying in ListView
   List<List<dynamic>> _csvData = [];
 
-  // Create an instance of the sensor data recorder
+  // Create an instance of the sensor data recorderR
   final SensorDataRecorder _sensorDataRecorder = SensorDataRecorder();
 
   @override
@@ -264,8 +264,98 @@ class _SensorScreenState extends State<SensorScreen> {
           break; // Stop on failure
         }
       }
+
+      // After all raw data is uploaded, trigger energy expenditure processing
+      await _processEnergyExpenditure(sessionId, userEmail);
     } catch (e) {
       print("⚠️ Error uploading CSV: $e");
+    }
+  }
+
+  Future<void> _processEnergyExpenditure(
+      String sessionId, String userEmail) async {
+    try {
+      print(
+          "🔄 Starting energy expenditure processing for session: $sessionId");
+
+      final Map<String, dynamic> payload = {
+        "session_id": sessionId,
+        "user_email": userEmail
+      };
+
+      // AWS Lambda API Gateway endpoint for energy expenditure processing
+      final String lambdaEndpoint =
+          "https://b8e3dexk76.execute-api.us-east-1.amazonaws.com/dev/process-energy-expenditure";
+
+      final response = await http.post(
+        Uri.parse(lambdaEndpoint),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(payload),
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        print("✅ Energy expenditure processing completed!");
+        print("📊 Results: ${responseData['results']}");
+
+        // Show results in a dialog with a scrollable list
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text('Energy Expenditure Results'),
+              content: Container(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                        'Total Windows Processed: ${responseData['total_windows_processed']}'),
+                    SizedBox(height: 16),
+                    Container(
+                      height: 300, // Fixed height for the list
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: responseData['results'].length,
+                        itemBuilder: (context, index) {
+                          final result = responseData['results'][index];
+                          // Parse the ISO timestamp string directly
+                          final timestamp = DateTime.parse(result['timestamp']);
+                          return ListTile(
+                            title: Text(
+                                'EE: ${result['energyExpenditure'].toStringAsFixed(2)} kcal'),
+                            subtitle: Text(
+                                'Time: ${timestamp.toString().split('.')[0]}'),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Close'),
+                ),
+              ],
+            ),
+          );
+        }
+      } else {
+        print("❌ Failed to process energy expenditure: ${response.body}");
+        throw Exception('Failed to process energy expenditure');
+      }
+    } catch (e) {
+      print("⚠️ Error processing energy expenditure: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error processing energy expenditure data'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
