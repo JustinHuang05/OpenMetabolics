@@ -25,7 +25,7 @@ class SensorDataRecorder {
 
     // ✅ Add "L2_Norm" to the header
     _sink.writeln(
-      'Timestamp,Accelerometer_X,Accelerometer_Y,Accelerometer_Z,Gyroscope_X,Gyroscope_Y,Gyroscope_Z,L2_Norm',
+      'Timestamp,Accelerometer_X,Accelerometer_Y,Accelerometer_Z,Gyroscope_X,Gyroscope_Y,Gyroscope_Z,L2_Norm,Platform',
     );
   }
 
@@ -59,44 +59,38 @@ class SensorDataRecorder {
     if (_isRecording) {
       // Convert relative timestamp to absolute timestamp (milliseconds since epoch)
       final absoluteTimestamp = DateTime.now().millisecondsSinceEpoch / 1000.0;
-      _dataBuffer
-          .add([absoluteTimestamp, accX, accY, accZ, gyroX, gyroY, gyroZ]);
+
+      // Add platform information
+      final platform =
+          Platform.isIOS ? 'iOS' : (Platform.isAndroid ? 'Android' : 'Unknown');
+
+      // Calculate L2 norm for gyroscope data
+      double l2Norm = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ);
+
+      // Add data to buffer with L2 norm already calculated
+      _dataBuffer.add([
+        absoluteTimestamp,
+        accX,
+        accY,
+        accZ,
+        gyroX,
+        gyroY,
+        gyroZ,
+        l2Norm,
+        platform == 'iOS'
+            ? 1
+            : 0 // Add platform indicator (1 for iOS, 0 for Android)
+      ]);
     }
   }
 
   void saveBufferedData() {
     if (_isRecording && _dataBuffer.isNotEmpty) {
-      // Process data in pairs of two rows
-      for (int i = 0; i < _dataBuffer.length; i += 2) {
-        List<double> row1 = _dataBuffer[i];
-
-        if (i + 1 < _dataBuffer.length) {
-          // Replace gyroscope data in the first row with that from the second row
-          List<double> row2 = _dataBuffer[i + 1];
-
-          row1[4] = row2[4]; // Gyroscope_X
-          row1[5] = row2[5]; // Gyroscope_Y
-          row1[6] = row2[6]; // Gyroscope_Z
-
-          // ✅ Calculate L2 norm (Euclidean norm) for the updated gyroscope data
-          double l2Norm =
-              sqrt(row1[4] * row1[4] + row1[5] * row1[5] + row1[6] * row1[6]);
-
-          // ✅ Append L2 norm to the row
-          final csvRow = row1.map((value) => value.toStringAsFixed(2)).toList()
-            ..add(l2Norm.toStringAsFixed(2));
-
-          _sink.writeln(ListToCsvConverter().convert([csvRow]));
-        } else {
-          // If there's an odd row left, just save it as is
-          double l2Norm =
-              sqrt(row1[4] * row1[4] + row1[5] * row1[5] + row1[6] * row1[6]);
-
-          final csvRow = row1.map((value) => value.toStringAsFixed(2)).toList()
-            ..add(l2Norm.toStringAsFixed(2));
-
-          _sink.writeln(ListToCsvConverter().convert([csvRow]));
-        }
+      // Process each row in the buffer
+      for (List<double> row in _dataBuffer) {
+        // Convert row to CSV format
+        final csvRow = row.map((value) => value.toStringAsFixed(2)).toList();
+        _sink.writeln(ListToCsvConverter().convert([csvRow]));
       }
 
       // Clear buffer after writing
@@ -113,7 +107,9 @@ class SensorDataRecorder {
   void saveMessage(double timestamp, String message) {
     if (_isRecording) {
       final absoluteTimestamp = DateTime.now().millisecondsSinceEpoch / 1000.0;
-      _sink.writeln('$absoluteTimestamp, $message');
+      final platform =
+          Platform.isIOS ? 'iOS' : (Platform.isAndroid ? 'Android' : 'Unknown');
+      _sink.writeln('$absoluteTimestamp, $message, $platform');
     }
   }
 }

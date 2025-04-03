@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:math'; // To calculate the second norm
-import 'dart:io'; // To read the CSV file
+import 'dart:io'; // To read the CSV file and check platform
 import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
 import '../services/sensor_channel.dart';
@@ -66,6 +66,13 @@ class _SensorScreenState extends State<SensorScreen> {
     // Start sensors
     SensorChannel.startSensors().then((_) {}).catchError((error) {
       print('Error starting sensors: $error');
+      // Show error message to user
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error starting sensors: $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
     });
 
     // Accelerometer subscription
@@ -78,37 +85,53 @@ class _SensorScreenState extends State<SensorScreen> {
             'Accelerometer: (${data[0].toStringAsFixed(2)}, ${data[1].toStringAsFixed(2)}, ${data[2].toStringAsFixed(2)})';
       });
 
-      final elapsedTime = DateTime.now().difference(_startTime!).inMilliseconds;
-      _sensorDataRecorder.bufferData(
-          elapsedTime / 1000.0, data[0], data[1], data[2], 0, 0, 0);
-    });
+      // Get gyroscope data
+      SensorChannel.getGyroscopeData().then((gyroData) {
+        setState(() {
+          _gyroscopeData =
+              'Gyroscope: (${gyroData[0].toStringAsFixed(2)}, ${gyroData[1].toStringAsFixed(2)}, ${gyroData[2].toStringAsFixed(2)})';
 
-    // Gyroscope subscription
-    _gyroscopeSubscription?.cancel(); // Cancel any existing subscription
-    _gyroscopeSubscription = Stream.periodic(
-      Duration(milliseconds: (1000 / _samplesPerSecond).round()),
-    ).asyncMap((_) => SensorChannel.getGyroscopeData()).listen((data) {
-      setState(() {
-        _gyroscopeData =
-            'Gyroscope: (${data[0].toStringAsFixed(2)}, ${data[1].toStringAsFixed(2)}, ${data[2].toStringAsFixed(2)})';
+          double secondNorm = sqrt(gyroData[0] * gyroData[0] +
+              gyroData[1] * gyroData[1] +
+              gyroData[2] * gyroData[2]);
+          _gyroscopeNorms.add(secondNorm);
 
-        double secondNorm =
-            sqrt(data[0] * data[0] + data[1] * data[1] + data[2] * data[2]);
-        _gyroscopeNorms.add(secondNorm);
+          final elapsedTime =
+              DateTime.now().difference(_startTime!).inMilliseconds;
 
-        final elapsedTime =
-            DateTime.now().difference(_startTime!).inMilliseconds;
+          // Buffer both accelerometer and gyroscope data together
+          _sensorDataRecorder.bufferData(elapsedTime / 1000.0, data[0], data[1],
+              data[2], gyroData[0], gyroData[1], gyroData[2]);
 
-        _sensorDataRecorder.bufferData(
-            elapsedTime / 1000.0, 0, 0, 0, data[0], data[1], data[2]);
+          _rowCount++;
 
-        _rowCount++;
-
-        if (_rowCount >= _batchSize) {
-          _processGyroscopeDataBatch();
-        }
+          if (_rowCount >= _batchSize) {
+            _processGyroscopeDataBatch();
+          }
+        });
+      }).catchError((error) {
+        print('Error getting gyroscope data: $error');
+        // Show error message to user
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error getting gyroscope data: $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
       });
+    }, onError: (error) {
+      print('Error getting accelerometer data: $error');
+      // Show error message to user
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error getting accelerometer data: $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
     });
+
+    // We don't need a separate gyroscope subscription anymore
+    // as we're getting gyroscope data along with accelerometer data
   }
 
   void _processGyroscopeDataBatch() {
@@ -116,7 +139,7 @@ class _SensorScreenState extends State<SensorScreen> {
     double sumNorms = _gyroscopeNorms.fold(0, (sum, norm) => sum + norm);
     double averageNorm = sumNorms / _gyroscopeNorms.length;
 
-    print('Average second norm of 500 rows: $averageNorm');
+    print('Average second norm of $_batchSize rows: $averageNorm');
 
     if (averageNorm > _threshold) {
       setState(() {

@@ -6,6 +6,16 @@ import CoreMotion
 @objc class AppDelegate: FlutterAppDelegate {
     let motionManager = CMMotionManager()
     var channel: FlutterMethodChannel?
+    
+    // Variables to store the latest sensor data
+    var accelerometerData: [Double] = [0, 0, 0]
+    var gyroscopeData: [Double] = [0, 0, 0]
+    
+    // Timestamp of the last data sent to Flutter
+    var lastDataSentTime: TimeInterval = 0
+    
+    // Minimum time between data sends (in seconds)
+    let minDataSendInterval: TimeInterval = 0.02 // 50Hz sampling rate
 
     override func application(
         _ application: UIApplication,
@@ -33,14 +43,25 @@ import CoreMotion
     }
 
     func startSensors(result: @escaping FlutterResult) {
+        // Reset timestamp
+        lastDataSentTime = 0
+        
         if motionManager.isAccelerometerAvailable {
-            motionManager.accelerometerUpdateInterval = 1.0 / 100.0  // 100 Hz
-            motionManager.startAccelerometerUpdates()
+            motionManager.accelerometerUpdateInterval = 1.0 / 50.0  // 50 Hz
+            motionManager.startAccelerometerUpdates(to: .main) { [weak self] (data, error) in
+                guard let data = data else { return }
+                self?.accelerometerData = [data.acceleration.x, data.acceleration.y, data.acceleration.z]
+            }
         }
+        
         if motionManager.isGyroAvailable {
-            motionManager.gyroUpdateInterval = 1.0 / 100.0  // 100 Hz
-            motionManager.startGyroUpdates()
+            motionManager.gyroUpdateInterval = 1.0 / 50.0  // 50 Hz
+            motionManager.startGyroUpdates(to: .main) { [weak self] (data, error) in
+                guard let data = data else { return }
+                self?.gyroscopeData = [data.rotationRate.x, data.rotationRate.y, data.rotationRate.z]
+            }
         }
+        
         result(nil)
     }
 
@@ -51,24 +72,40 @@ import CoreMotion
     }
 
     func getAccelerometerData(result: @escaping FlutterResult) {
-        if let accelerometerData = motionManager.accelerometerData {
-            let x = accelerometerData.acceleration.x
-            let y = accelerometerData.acceleration.y
-            let z = accelerometerData.acceleration.z
-            result([x, y, z])
+        let currentTime = Date().timeIntervalSince1970
+        
+        // Check if enough time has passed since the last data send
+        if currentTime - lastDataSentTime >= minDataSendInterval {
+            lastDataSentTime = currentTime
+            
+            // Return both accelerometer and gyroscope data together
+            result([
+                accelerometerData[0],
+                accelerometerData[1],
+                accelerometerData[2],
+                gyroscopeData[0],
+                gyroscopeData[1],
+                gyroscopeData[2]
+            ])
         } else {
-            result(FlutterError(code: "UNAVAILABLE", message: "Accelerometer data not available", details: nil))
+            // If not enough time has passed, return the last data
+            result([
+                accelerometerData[0],
+                accelerometerData[1],
+                accelerometerData[2],
+                gyroscopeData[0],
+                gyroscopeData[1],
+                gyroscopeData[2]
+            ])
         }
     }
 
     func getGyroscopeData(result: @escaping FlutterResult) {
-        if let gyroData = motionManager.gyroData {
-            let x = gyroData.rotationRate.x
-            let y = gyroData.rotationRate.y
-            let z = gyroData.rotationRate.z
-            result([x, y, z])
-        } else {
-            result(FlutterError(code: "UNAVAILABLE", message: "Gyroscope data not available", details: nil))
-        }
+        // For backward compatibility, still return just gyroscope data
+        result([
+            gyroscopeData[0],
+            gyroscopeData[1],
+            gyroscopeData[2]
+        ])
     }
 }
