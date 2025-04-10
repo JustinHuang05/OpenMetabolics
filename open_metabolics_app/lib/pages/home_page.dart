@@ -80,6 +80,11 @@ class _SensorScreenState extends State<SensorScreen> {
     _accelerometerSubscription = Stream.periodic(
       Duration(milliseconds: (1000 / _samplesPerSecond).round()),
     ).asyncMap((_) => SensorChannel.getAccelerometerData()).listen((data) {
+      if (data.length < 3) {
+        print('Error: Invalid accelerometer data length: ${data.length}');
+        return;
+      }
+
       setState(() {
         _accelerometerData =
             'Accelerometer: (${data[0].toStringAsFixed(2)}, ${data[1].toStringAsFixed(2)}, ${data[2].toStringAsFixed(2)})';
@@ -87,6 +92,11 @@ class _SensorScreenState extends State<SensorScreen> {
 
       // Get gyroscope data
       SensorChannel.getGyroscopeData().then((gyroData) {
+        if (gyroData.length < 3) {
+          print('Error: Invalid gyroscope data length: ${gyroData.length}');
+          return;
+        }
+
         setState(() {
           _gyroscopeData =
               'Gyroscope: (${gyroData[0].toStringAsFixed(2)}, ${gyroData[1].toStringAsFixed(2)}, ${gyroData[2].toStringAsFixed(2)})';

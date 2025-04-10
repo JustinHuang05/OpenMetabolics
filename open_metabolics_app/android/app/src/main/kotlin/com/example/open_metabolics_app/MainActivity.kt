@@ -139,6 +139,12 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                 // Store gyroscope data
                 System.arraycopy(event.values, 0, gyroscopeData, 0, 3)
                 hasNewGyroscopeData.set(true)
+
+                // Add debug logging
+                android.util.Log.d(
+                        "Gyroscope",
+                        "Raw gyro values - X: ${event.values[0]}, Y: ${event.values[1]}, Z: ${event.values[2]}"
+                )
             }
         }
     }
