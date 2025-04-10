@@ -5,6 +5,7 @@ import 'auth/auth_wrapper.dart';
 import 'package:amplify_flutter/amplify_flutter.dart';
 import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
 import 'auth/amplify_config.dart';
+import 'providers/user_profile_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,7 +20,28 @@ void main() async {
     print('Error configuring Amplify: $e');
   }
 
-  runApp(MyApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => UserProfileProvider()),
+        Provider<AuthService>(
+          create: (_) => AuthService(),
+        ),
+        // Comment out StreamProvider since it uses Firebase
+        // StreamProvider(
+        //   create: (context) => context.read<AuthService>().user,
+        //   initialData: null,
+        // ),
+      ],
+      child: MaterialApp(
+        title: 'OpenMetabolics',
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+        ),
+        home: AuthWrapper(),
+      ),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {

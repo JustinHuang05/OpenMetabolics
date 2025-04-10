@@ -12,6 +12,9 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../auth/auth_service.dart';
 import '../auth/login_page.dart';
+import 'user_profile_page.dart';
+import '../models/user_profile.dart';
+import '../providers/user_profile_provider.dart';
 
 class SensorScreen extends StatefulWidget {
   @override
@@ -39,6 +42,66 @@ class _SensorScreenState extends State<SensorScreen> {
   // Create an instance of the sensor data recorderR
   final SensorDataRecorder _sensorDataRecorder = SensorDataRecorder();
 
+  final AuthService _authService = AuthService();
+  UserProfile? _userProfile;
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    // Fetch profile when the page loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<UserProfileProvider>().fetchUserProfile();
+    });
+  }
+
+  Future<void> _fetchUserProfile() async {
+    try {
+      final userEmail = await _authService.getCurrentUserEmail();
+      if (userEmail == null) {
+        throw Exception('User not logged in');
+      }
+
+      final response = await http.post(
+        Uri.parse(
+            'https://b8e3dexk76.execute-api.us-east-1.amazonaws.com/dev/get-user-profile'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'user_email': userEmail,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _userProfile = UserProfile.fromJson(data);
+        });
+      } else if (response.statusCode == 404) {
+        // Profile not found, this is okay
+        setState(() {
+          _userProfile = null;
+        });
+      } else {
+        throw Exception('Failed to fetch profile: ${response.body}');
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _updateUserProfile(UserProfile profile) {
+    setState(() {
+      _userProfile = profile;
+    });
+  }
+
   @override
   void dispose() {
     // Cancel any active subscriptions when the widget is disposed
@@ -48,6 +111,19 @@ class _SensorScreenState extends State<SensorScreen> {
   }
 
   void _startTracking() {
+    final profileProvider = context.read<UserProfileProvider>();
+
+    if (!profileProvider.hasProfile) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content:
+              Text('Please complete your profile before starting tracking'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     print('Start button pressed');
 
     // Reset all states and buffers
@@ -397,6 +473,8 @@ class _SensorScreenState extends State<SensorScreen> {
     Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
     Color textGray = Color.fromRGBO(66, 66, 66, 1);
 
+    final profileProvider = context.watch<UserProfileProvider>();
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -405,6 +483,25 @@ class _SensorScreenState extends State<SensorScreen> {
         ),
         backgroundColor: lightPurple,
         actions: [
+          IconButton(
+            icon: Icon(
+              Icons.person,
+              color: textGray,
+            ),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => UserProfilePage(
+                    userProfile: profileProvider.userProfile,
+                    onProfileUpdated: (profile) {
+                      profileProvider.updateProfile(profile);
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: Icon(
               Icons.logout,
@@ -429,48 +526,53 @@ class _SensorScreenState extends State<SensorScreen> {
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            if (_isTracking)
-              Text(
-                _accelerometerData,
-                style: Theme.of(context).textTheme.headline6,
-              ),
-            if (_isTracking) SizedBox(height: 16),
-            if (_isTracking)
-              Text(
-                _gyroscopeData,
-                style: Theme.of(context).textTheme.headline6,
-              ),
-            if (_isTracking && _isAboveThreshold) SizedBox(height: 16),
-            if (_isTracking && _isAboveThreshold)
-              Text(
-                'Gyroscope movement exceeded threshold!',
-                style: TextStyle(
-                  color: Colors.red,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+      body: profileProvider.isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : profileProvider.errorMessage != null
+              ? Center(child: Text(profileProvider.errorMessage!))
+              : Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      if (_isTracking)
+                        Text(
+                          _accelerometerData,
+                          style: Theme.of(context).textTheme.headline6,
+                        ),
+                      if (_isTracking) SizedBox(height: 16),
+                      if (_isTracking)
+                        Text(
+                          _gyroscopeData,
+                          style: Theme.of(context).textTheme.headline6,
+                        ),
+                      if (_isTracking && _isAboveThreshold)
+                        SizedBox(height: 16),
+                      if (_isTracking && _isAboveThreshold)
+                        Text(
+                          'Gyroscope movement exceeded threshold!',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      SizedBox(height: 16),
+                      // Display CSV data in a ListView
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: _csvData.length,
+                          itemBuilder: (context, index) {
+                            final row = _csvData[index];
+                            return ListTile(
+                              title: Text(row.join(', ')),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            SizedBox(height: 16),
-            // Display CSV data in a ListView
-            Expanded(
-              child: ListView.builder(
-                itemCount: _csvData.length,
-                itemBuilder: (context, index) {
-                  final row = _csvData[index];
-                  return ListTile(
-                    title: Text(row.join(', ')),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
       floatingActionButton: Container(
         height: 95,
         width: 95,

@@ -87,6 +87,24 @@ resource "aws_dynamodb_table" "energy_expenditure_results" {
   }
 }
 
+# DynamoDB Table for user profiles
+resource "aws_dynamodb_table" "user_profiles" {
+  name           = "${var.project_name}-user-profiles"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "UserEmail"
+  stream_enabled = false
+
+  attribute {
+    name = "UserEmail"
+    type = "S"
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
 # Lambda IAM Role
 resource "aws_iam_role" "lambda_role" {
   name = "${var.project_name}-lambda-role"
@@ -124,7 +142,8 @@ resource "aws_iam_role_policy" "lambda_policy" {
           aws_dynamodb_table.raw_sensor_data.arn,
           "${aws_dynamodb_table.raw_sensor_data.arn}/index/UserEmailIndex",
           aws_dynamodb_table.energy_expenditure_results.arn,
-          "${aws_dynamodb_table.energy_expenditure_results.arn}/index/UserEmailIndex"
+          "${aws_dynamodb_table.energy_expenditure_results.arn}/index/UserEmailIndex",
+          aws_dynamodb_table.user_profiles.arn
         ]
       },
       {
@@ -359,4 +378,114 @@ output "cognito_pool_id" {
 
 output "cognito_client_id" {
   value = aws_cognito_user_pool_client.client.id
+}
+
+# Lambda Function for user profile management
+resource "aws_lambda_function" "user_profile_handler" {
+  filename         = data.archive_file.user_profile_zip.output_path
+  function_name    = "manage-user-profile"
+  role            = aws_iam_role.lambda_role.arn
+  handler         = "user_profile.handler"
+  runtime         = "nodejs18.x"
+  timeout         = 30
+  memory_size     = 256
+  source_code_hash = data.archive_file.user_profile_zip.output_base64sha256
+
+  environment {
+    variables = {
+      USER_PROFILES_TABLE = aws_dynamodb_table.user_profiles.name
+    }
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# Archive Lambda function code for user profile management
+data "archive_file" "user_profile_zip" {
+  type        = "zip"
+  source_file = "${path.module}/lambda/user_profile.js"
+  output_path = "${path.module}/lambda/user_profile_function.zip"
+}
+
+# API Gateway integration for user profile management
+resource "aws_apigatewayv2_integration" "user_profile_integration" {
+  api_id           = aws_apigatewayv2_api.lambda_api.id
+  integration_type = "AWS_PROXY"
+
+  connection_type    = "INTERNET"
+  description       = "User profile management Lambda integration"
+  integration_method = "POST"
+  integration_uri    = aws_lambda_function.user_profile_handler.invoke_arn
+}
+
+resource "aws_apigatewayv2_route" "user_profile_route" {
+  api_id    = aws_apigatewayv2_api.lambda_api.id
+  route_key = "POST /manage-user-profile"
+  target    = "integrations/${aws_apigatewayv2_integration.user_profile_integration.id}"
+}
+
+resource "aws_lambda_permission" "user_profile_api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.user_profile_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
+}
+
+# Archive Lambda function code for getting user profile
+data "archive_file" "get_user_profile_zip" {
+  type        = "zip"
+  source_file = "${path.module}/lambda/get_user_profile.js"
+  output_path = "${path.module}/lambda/get_user_profile_function.zip"
+}
+
+# Lambda Function for getting user profile
+resource "aws_lambda_function" "get_user_profile_handler" {
+  filename         = data.archive_file.get_user_profile_zip.output_path
+  function_name    = "get-user-profile"
+  role            = aws_iam_role.lambda_role.arn
+  handler         = "get_user_profile.handler"
+  runtime         = "nodejs18.x"
+  timeout         = 30
+  memory_size     = 256
+  source_code_hash = data.archive_file.get_user_profile_zip.output_base64sha256
+
+  environment {
+    variables = {
+      USER_PROFILES_TABLE = aws_dynamodb_table.user_profiles.name
+    }
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# API Gateway integration for getting user profile
+resource "aws_apigatewayv2_integration" "get_user_profile_integration" {
+  api_id           = aws_apigatewayv2_api.lambda_api.id
+  integration_type = "AWS_PROXY"
+
+  connection_type    = "INTERNET"
+  description       = "Get user profile Lambda integration"
+  integration_method = "POST"
+  integration_uri    = aws_lambda_function.get_user_profile_handler.invoke_arn
+}
+
+resource "aws_apigatewayv2_route" "get_user_profile_route" {
+  api_id    = aws_apigatewayv2_api.lambda_api.id
+  route_key = "POST /get-user-profile"
+  target    = "integrations/${aws_apigatewayv2_integration.get_user_profile_integration.id}"
+}
+
+resource "aws_lambda_permission" "get_user_profile_api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.get_user_profile_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
 } 
