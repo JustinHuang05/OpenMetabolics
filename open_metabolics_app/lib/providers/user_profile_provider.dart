@@ -3,6 +3,7 @@ import '../models/user_profile.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../auth/auth_service.dart';
+import '../config/api_config.dart';
 
 class UserProfileProvider with ChangeNotifier {
   UserProfile? _userProfile;
@@ -28,8 +29,7 @@ class UserProfileProvider with ChangeNotifier {
       }
 
       final response = await http.post(
-        Uri.parse(
-            'https://mwb5n62zxi.execute-api.us-east-1.amazonaws.com/dev/get-user-profile'),
+        Uri.parse(ApiConfig.getUserProfile),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'user_email': userEmail,
@@ -71,8 +71,7 @@ class UserProfileProvider with ChangeNotifier {
       }
 
       final response = await http.post(
-        Uri.parse(
-            'https://mwb5n62zxi.execute-api.us-east-1.amazonaws.com/dev/manage-user-profile'),
+        Uri.parse(ApiConfig.manageUserProfile),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'user_email': userEmail,

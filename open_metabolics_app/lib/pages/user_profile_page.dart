@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../auth/auth_service.dart';
 import '../models/user_profile.dart';
+import '../config/api_config.dart';
 
 class UserProfilePage extends StatefulWidget {
   final UserProfile? userProfile;
@@ -75,8 +76,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
       }
 
       final response = await http.post(
-        Uri.parse(
-            'https://mwb5n62zxi.execute-api.us-east-1.amazonaws.com/dev/manage-user-profile'),
+        Uri.parse(ApiConfig.manageUserProfile),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'user_email': userEmail,

@@ -15,6 +15,7 @@ import '../auth/login_page.dart';
 import 'user_profile_page.dart';
 import '../models/user_profile.dart';
 import '../providers/user_profile_provider.dart';
+import '../config/api_config.dart';
 
 class SensorScreen extends StatefulWidget {
   @override
@@ -64,8 +65,7 @@ class _SensorScreenState extends State<SensorScreen> {
       }
 
       final response = await http.post(
-        Uri.parse(
-            'https://b8e3dexk76.execute-api.us-east-1.amazonaws.com/dev/get-user-profile'),
+        Uri.parse(ApiConfig.getUserProfile),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'user_email': userEmail,
@@ -352,8 +352,7 @@ class _SensorScreenState extends State<SensorScreen> {
         };
 
         // AWS Lambda API Gateway endpoint
-        final String lambdaEndpoint =
-            "https://mwb5n62zxi.execute-api.us-east-1.amazonaws.com/dev/save-raw-sensor-data";
+        final String lambdaEndpoint = ApiConfig.saveRawSensorData;
 
         print(
             "📤 Uploading batch ${i ~/ batchSize + 1}/$totalBatches with ${batch.length} rows");
@@ -393,8 +392,7 @@ class _SensorScreenState extends State<SensorScreen> {
       };
 
       // AWS Lambda API Gateway endpoint for energy expenditure processing
-      final String lambdaEndpoint =
-          "https://mwb5n62zxi.execute-api.us-east-1.amazonaws.com/dev/process-energy-expenditure";
+      final String lambdaEndpoint = ApiConfig.processEnergyExpenditure;
 
       final response = await http.post(
         Uri.parse(lambdaEndpoint),
