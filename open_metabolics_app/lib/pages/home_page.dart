@@ -331,7 +331,7 @@ class _SensorScreenState extends State<SensorScreen> {
       print("📊 Total rows in CSV (excluding header): ${dataRows.length}");
 
       // Define batch size
-      int batchSize = 50;
+      int batchSize = 200;
       int totalBatches = (dataRows.length / batchSize).ceil();
 
       // Generate a unique session ID using timestamp and user email
@@ -353,7 +353,7 @@ class _SensorScreenState extends State<SensorScreen> {
 
         // AWS Lambda API Gateway endpoint
         final String lambdaEndpoint =
-            "https://b8e3dexk76.execute-api.us-east-1.amazonaws.com/dev/save-raw-sensor-data";
+            "https://mwb5n62zxi.execute-api.us-east-1.amazonaws.com/dev/save-raw-sensor-data";
 
         print(
             "📤 Uploading batch ${i ~/ batchSize + 1}/$totalBatches with ${batch.length} rows");
@@ -394,7 +394,7 @@ class _SensorScreenState extends State<SensorScreen> {
 
       // AWS Lambda API Gateway endpoint for energy expenditure processing
       final String lambdaEndpoint =
-          "https://b8e3dexk76.execute-api.us-east-1.amazonaws.com/dev/process-energy-expenditure";
+          "https://mwb5n62zxi.execute-api.us-east-1.amazonaws.com/dev/process-energy-expenditure";
 
       final response = await http.post(
         Uri.parse(lambdaEndpoint),

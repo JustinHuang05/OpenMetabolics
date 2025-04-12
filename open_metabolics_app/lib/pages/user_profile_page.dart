@@ -76,7 +76,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
       final response = await http.post(
         Uri.parse(
-            'https://b8e3dexk76.execute-api.us-east-1.amazonaws.com/dev/manage-user-profile'),
+            'https://mwb5n62zxi.execute-api.us-east-1.amazonaws.com/dev/manage-user-profile'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'user_email': userEmail,
