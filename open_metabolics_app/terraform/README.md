@@ -120,6 +120,65 @@ terraform/
       terraform apply
    ```
 
+## Deploying from Scratch
+
+If you need to completely redeploy the infrastructure from scratch, follow these steps:
+
+1. **Destroy Existing Resources**
+
+   ```bash
+   terraform destroy
+   ```
+
+   When prompted, type `yes` to confirm the destruction of all resources.
+
+2. **Clean Up Terraform State**
+
+   ```bash
+   rm terraform.tfstate*
+   ```
+
+3. **Reinitialize Terraform**
+
+   ```bash
+   terraform init -reconfigure
+   ```
+
+4. **Apply Infrastructure**
+
+   ```bash
+   terraform apply
+   ```
+
+   When prompted, type `yes` to confirm the creation of resources.
+
+5. **Build and Push Docker Image**
+   After the infrastructure is created, you need to build and push the Docker image:
+
+   ```bash
+   cd scripts
+   ./build_and_push.sh
+   cd ..
+   ```
+
+6. **Verify Deployment**
+
+   - Check the ECS service status:
+     ```bash
+     aws ecs describe-services --cluster open-metabolics-cluster --services open-metabolics-energy-expenditure-service
+     ```
+   - Check the ALB health:
+     ```bash
+     aws elbv2 describe-target-health --target-group-arn $(aws elbv2 describe-target-groups --names open-metabolics-ee-tg --query 'TargetGroups[0].TargetGroupArn' --output text)
+     ```
+
+7. **Update Flutter App Configuration**
+   After deployment, update the following in your Flutter app:
+   - Update `ApiConfig.energyExpenditureServiceUrl` in `lib/config/api_config.dart` with the new ALB DNS name
+   - Verify other API endpoints in `ApiConfig` are correct
+
+Note: The Docker image build and push is not automated in the Terraform configuration because it's considered part of the application deployment process rather than infrastructure provisioning.
+
 ## Infrastructure Details
 
 The deployment creates:
