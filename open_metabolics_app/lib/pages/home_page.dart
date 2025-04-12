@@ -391,11 +391,11 @@ class _SensorScreenState extends State<SensorScreen> {
         "user_email": userEmail
       };
 
-      // AWS Lambda API Gateway endpoint for energy expenditure processing
-      final String lambdaEndpoint = ApiConfig.processEnergyExpenditure;
+      // Get the Fargate service URL from the environment
+      final String fargateEndpoint = ApiConfig.energyExpenditureServiceUrl;
 
       final response = await http.post(
-        Uri.parse(lambdaEndpoint),
+        Uri.parse(fargateEndpoint),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(payload),
       );

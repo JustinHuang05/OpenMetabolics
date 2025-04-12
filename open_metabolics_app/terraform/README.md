@@ -16,6 +16,8 @@ terraform/
 ├── variables.tf      # Variable definitions
 ├── outputs.tf        # Output definitions
 ├── README.md         # This file
+├── scripts/         # Scripts directory
+│   └── build_and_push.sh  # Script to build and push Docker image
 └── lambda/           # Lambda function code
     ├── index.js      # Lambda function implementation
     └── package.json  # Node.js dependencies
@@ -63,6 +65,7 @@ terraform/
    - The DynamoDB table that will be created
    - The Lambda function and its configuration
    - The API Gateway setup
+   - The ECR repository and Docker image build/push automation
    - IAM roles and policies
 
 5. **Apply the Changes**
@@ -73,6 +76,13 @@ terraform/
 
    When prompted, type `yes` to confirm the deployment.
 
+   The deployment process will:
+
+   - Create all AWS resources
+   - Build the Docker image for the energy expenditure service
+   - Push the image to ECR
+   - Deploy the ECS service with the new image
+
 6. **Update Flutter App**
    After deployment completes, you'll see the API Gateway endpoint URL in the outputs.
    Update your Flutter app's `_uploadCSVToServer` function in `lib/pages/home_page.dart`:
@@ -81,7 +91,28 @@ terraform/
    final String lambdaEndpoint = "https://<your-api-id>.execute-api.us-east-1.amazonaws.com/dev/save-raw-sensor-data";
    ```
 
-7. **Optional, destroy resources if needed**
+7. **Importing Existing Resources**
+
+   If you're using an existing AWS account where some resources were created outside of Terraform, you'll need to import them before running `terraform apply`. For example:
+
+   ```bash
+   # Import CloudWatch Log Group
+   terraform import aws_cloudwatch_log_group.energy_expenditure /ecs/open-metabolics-energy-expenditure
+
+   # Import Target Group
+   terraform import aws_lb_target_group.energy_expenditure arn:aws:elasticloadbalancing:us-east-1:YOUR_ACCOUNT_ID:targetgroup/open-metabolics-ee-tg/YOUR_TARGET_GROUP_ID
+   ```
+
+   To find the ARN of an existing resource:
+
+   1. Go to the AWS Console
+   2. Navigate to the service (e.g., EC2 > Target Groups)
+   3. Select the resource
+   4. Look for the ARN in the details or tags section
+
+   Note: In a new AWS account, you won't need to import resources as Terraform will create them from scratch.
+
+8. **Optional, destroy resources if needed**
    ```bash
       terraform destroy
       terraform init -reconfigure
@@ -208,3 +239,25 @@ Before deploying this application, you need to request production access for Ama
 - Only verified email addresses can receive emails
 
 AWS typically responds to production access requests within 24-48 hours.
+
+## Docker Image Automation
+
+The deployment process includes automatic building and pushing of the Docker image:
+
+1. The `scripts/build_and_push.sh` script handles:
+
+   - Building the Docker image from the Dockerfile
+   - Logging into ECR
+   - Tagging the image
+   - Pushing the image to ECR
+
+2. The process is triggered automatically when:
+
+   - The Dockerfile content changes
+   - The build script content changes
+   - A new deployment is initiated
+
+3. To manually rebuild and push the image:
+   ```bash
+   ./scripts/build_and_push.sh
+   ```

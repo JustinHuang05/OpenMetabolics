@@ -488,4 +488,450 @@ resource "aws_lambda_permission" "get_user_profile_api_gw" {
   function_name = aws_lambda_function.get_user_profile_handler.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
+}
+
+# ECR Repository for Fargate service
+resource "aws_ecr_repository" "energy_expenditure_service" {
+  name = "${var.project_name}-energy-expenditure-service"
+  force_delete = true
+}
+
+# Null resource to build and push Docker image
+resource "null_resource" "docker_build_push" {
+  depends_on = [aws_ecr_repository.energy_expenditure_service]
+
+  triggers = {
+    script_hash = filesha256("${path.module}/scripts/build_and_push.sh")
+    dockerfile_hash = filesha256("${path.module}/../fargate/Dockerfile")
+  }
+
+  provisioner "local-exec" {
+    command = "${path.module}/scripts/build_and_push.sh"
+    working_dir = path.root
+  }
+}
+
+# ECR Lifecycle Policy
+resource "aws_ecr_lifecycle_policy" "energy_expenditure_service" {
+  repository = aws_ecr_repository.energy_expenditure_service.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep last 30 images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 30
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+# ECS Cluster
+resource "aws_ecs_cluster" "main" {
+  name = "${var.project_name}-cluster"
+}
+
+# ECS Task Definition
+resource "aws_ecs_task_definition" "energy_expenditure" {
+  family                   = "${var.project_name}-energy-expenditure"
+  network_mode            = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                     = "1024"
+  memory                  = "2048"
+  execution_role_arn      = aws_iam_role.ecs_task_execution_role.arn
+  task_role_arn           = aws_iam_role.ecs_task_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "energy-expenditure"
+      image     = "${aws_ecr_repository.energy_expenditure_service.repository_url}:latest"
+      essential = true
+      portMappings = [
+        {
+          containerPort = 80
+          hostPort      = 80
+          protocol      = "tcp"
+        }
+      ]
+      environment = [
+        {
+          name  = "RAW_SENSOR_TABLE"
+          value = aws_dynamodb_table.raw_sensor_data.name
+        },
+        {
+          name  = "RESULTS_TABLE"
+          value = aws_dynamodb_table.energy_expenditure_results.name
+        }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.energy_expenditure.name
+          awslogs-region        = "us-east-1"
+          awslogs-stream-prefix = "ecs"
+        }
+      }
+    }
+  ])
+}
+
+# CloudWatch Log Group
+resource "aws_cloudwatch_log_group" "energy_expenditure" {
+  name              = "/ecs/${var.project_name}-energy-expenditure"
+  retention_in_days = 30
+}
+
+# ECS Service
+resource "aws_ecs_service" "energy_expenditure" {
+  name            = "${var.project_name}-energy-expenditure-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.energy_expenditure.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = [aws_subnet.public.id, aws_subnet.public_2.id]
+    security_groups  = [aws_security_group.ecs_tasks.id]
+    assign_public_ip = true
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.energy_expenditure.arn
+    container_name   = "energy-expenditure"
+    container_port   = 80
+  }
+
+  depends_on = [aws_lb_listener.energy_expenditure]
+}
+
+# Security Group for ECS Tasks
+resource "aws_security_group" "ecs_tasks" {
+  name        = "${var.project_name}-ecs-tasks-sg"
+  description = "Security group for ECS tasks"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    protocol        = "tcp"
+    from_port       = 80
+    to_port         = 80
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  egress {
+    protocol    = "-1"
+    from_port   = 0
+    to_port     = 0
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# IAM Role for ECS Task Execution
+resource "aws_iam_role" "ecs_task_execution_role" {
+  name = "${var.project_name}-ecs-task-execution-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+# IAM Role Policy for ECS Task Execution
+resource "aws_iam_role_policy" "ecs_task_execution_role_policy" {
+  name = "${var.project_name}-ecs-task-execution-role-policy"
+  role = aws_iam_role.ecs_task_execution_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# IAM Role for ECS Task
+resource "aws_iam_role" "ecs_task_role" {
+  name = "${var.project_name}-ecs-task-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+# IAM Role Policy for ECS Task
+resource "aws_iam_role_policy" "ecs_task_role_policy" {
+  name = "${var.project_name}-ecs-task-role-policy"
+  role = aws_iam_role.ecs_task_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:Query",
+          "dynamodb:PutItem"
+        ]
+        Resource = [
+          aws_dynamodb_table.raw_sensor_data.arn,
+          aws_dynamodb_table.energy_expenditure_results.arn
+        ]
+      }
+    ]
+  })
+}
+
+# Application Load Balancer
+resource "aws_lb" "energy_expenditure" {
+  name               = "open-metabolics-ee-lb"
+  internal           = false
+  load_balancer_type = "application"
+  subnets            = [aws_subnet.public.id, aws_subnet.public_2.id]
+  security_groups    = [aws_security_group.alb.id]
+}
+
+# ALB Security Group
+resource "aws_security_group" "alb" {
+  name        = "${var.project_name}-alb-sg"
+  description = "Security group for ALB"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    protocol    = "tcp"
+    from_port   = 80
+    to_port     = 80
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    protocol    = "-1"
+    from_port   = 0
+    to_port     = 0
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# ALB Target Group
+resource "aws_lb_target_group" "energy_expenditure" {
+  name        = "open-metabolics-ee-tg"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
+
+  health_check {
+    path                = "/health"
+    healthy_threshold   = 2
+    unhealthy_threshold = 10
+    timeout             = 30
+    interval            = 60
+    matcher            = "200"
+  }
+}
+
+# ALB Listener
+resource "aws_lb_listener" "energy_expenditure" {
+  load_balancer_arn = aws_lb.energy_expenditure.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.energy_expenditure.arn
+  }
+}
+
+# Output the ALB DNS name
+output "energy_expenditure_service_url" {
+  value = aws_lb.energy_expenditure.dns_name
+}
+
+# VPC
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = {
+    Name        = "${var.project_name}-vpc"
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# Public Subnet
+resource "aws_subnet" "public" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  map_public_ip_on_launch = true
+  availability_zone       = "${var.aws_region}a"
+
+  tags = {
+    Name        = "${var.project_name}-public-subnet"
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# Public Subnet 2
+resource "aws_subnet" "public_2" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.4.0/24"
+  map_public_ip_on_launch = true
+  availability_zone       = "${var.aws_region}b"
+
+  tags = {
+    Name        = "${var.project_name}-public-subnet-2"
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# Private Subnet
+resource "aws_subnet" "private" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.2.0/24"
+  availability_zone = "${var.aws_region}a"
+
+  tags = {
+    Name        = "${var.project_name}-private-subnet"
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# Add a second private subnet in a different AZ
+resource "aws_subnet" "private_2" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.3.0/24"
+  availability_zone = "${var.aws_region}b"
+
+  tags = {
+    Name        = "${var.project_name}-private-subnet-2"
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# Internet Gateway
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name        = "${var.project_name}-igw"
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# Route Table for Public Subnet
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
+
+  tags = {
+    Name        = "${var.project_name}-public-rt"
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# Route Table Association for Public Subnet
+resource "aws_route_table_association" "public" {
+  subnet_id      = aws_subnet.public.id
+  route_table_id = aws_route_table.public.id
+}
+
+# Route Table Association for Public Subnet 2
+resource "aws_route_table_association" "public_2" {
+  subnet_id      = aws_subnet.public_2.id
+  route_table_id = aws_route_table.public.id
+}
+
+# NAT Gateway
+resource "aws_eip" "nat" {
+  domain = "vpc"
+
+  tags = {
+    Name        = "${var.project_name}-nat-eip"
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+resource "aws_nat_gateway" "main" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public.id
+
+  tags = {
+    Name        = "${var.project_name}-nat-gw"
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+
+  depends_on = [aws_internet_gateway.main]
+}
+
+# Route Table for Private Subnet
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.main.id
+  }
+
+  tags = {
+    Name        = "${var.project_name}-private-rt"
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# Route Table Association for Private Subnet
+resource "aws_route_table_association" "private" {
+  subnet_id      = aws_subnet.private.id
+  route_table_id = aws_route_table.private.id
+}
+
+# Add route table association for the second private subnet
+resource "aws_route_table_association" "private_2" {
+  subnet_id      = aws_subnet.private_2.id
+  route_table_id = aws_route_table.private.id
 } 
