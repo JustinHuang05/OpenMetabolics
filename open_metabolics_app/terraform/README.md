@@ -258,6 +258,7 @@ To destroy all resources:
 
 ```bash
 terraform destroy
+might have to destroy load balancer and target group manually idk why
 ```
 
 When prompted, type `yes` to confirm the destruction of resources.

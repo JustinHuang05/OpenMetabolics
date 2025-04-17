@@ -1,7 +1,7 @@
 class ApiConfig {
   // Base URL for the API Gateway
   static const String baseUrl =
-      'https://nudjcgwqch.execute-api.us-east-1.amazonaws.com/dev';
+      'https://6ott1vld53.execute-api.us-east-1.amazonaws.com/dev';
 
   // User Profile Endpoints
   static const String getUserProfile = '$baseUrl/get-user-profile';
@@ -14,5 +14,5 @@ class ApiConfig {
 
   // Fargate service URL
   static const String energyExpenditureServiceUrl =
-      'http://open-metabolics-ee-lb-734453477.us-east-1.elb.amazonaws.com/process';
+      'http://open-metabolics-ee-lb-108159146.us-east-1.elb.amazonaws.com/process';
 }

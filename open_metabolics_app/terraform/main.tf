@@ -606,7 +606,9 @@ resource "aws_ecs_service" "energy_expenditure" {
     container_port   = 80
   }
 
-  depends_on = [aws_lb_listener.energy_expenditure]
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # Security Group for ECS Tasks
