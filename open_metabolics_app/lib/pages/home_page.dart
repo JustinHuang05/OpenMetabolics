@@ -233,26 +233,16 @@ class _SensorScreenState extends State<SensorScreen> {
       });
 
       print('Average gyroscope movement exceeded threshold!');
-
-      // Save the accumulated sensor data for the batch by flushing the buffer
-      _sensorDataRecorder
-          .saveBufferedData(); // Save only if threshold is exceeded
     } else {
       setState(() {
         _isAboveThreshold = false;
       });
 
-      // Discard buffered data if the threshold is not exceeded
-      _sensorDataRecorder.clearBuffer();
-
-      // Log a message if the threshold is not exceeded
-      final elapsedTime = DateTime.now().difference(_startTime!).inMilliseconds;
-      _sensorDataRecorder.saveMessage(elapsedTime / 1000.0,
-          'Threshold not exceeded for the last 500 samples');
-
-      print(
-          'Average gyroscope movement below threshold. Skipping data saving for this batch.');
+      print('Average gyroscope movement below threshold.');
     }
+
+    // Always save the accumulated sensor data for the batch by flushing the buffer
+    _sensorDataRecorder.saveBufferedData();
 
     // Clear the list for the next batch
     _gyroscopeNorms.clear();
