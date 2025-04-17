@@ -324,3 +324,4 @@ The deployment process includes automatic building and pushing of the Docker ima
 TLDR
 1. build and push by running "./build_and_push.sh"
 2. terraform apply (and wait for the new task to pop up)
+3. Ok maybe this doesnt work and just go to aws and update --> force new deployment

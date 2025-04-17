@@ -418,6 +418,9 @@ class _SensorScreenState extends State<SensorScreen> {
                   children: [
                     Text(
                         'Total Windows Processed: ${responseData['total_windows_processed']}'),
+                    SizedBox(height: 8),
+                    Text(
+                        'Total Gait Cycles Predicted: ${responseData['results'].length}'),
                     SizedBox(height: 16),
                     Container(
                       height: 300, // Fixed height for the list
@@ -430,7 +433,7 @@ class _SensorScreenState extends State<SensorScreen> {
                           final timestamp = DateTime.parse(result['timestamp']);
                           return ListTile(
                             title: Text(
-                                'EE: ${result['energyExpenditure'].toStringAsFixed(2)} kcal'),
+                                'EE: ${result['energyExpenditure'].toStringAsFixed(2)} W'),
                             subtitle: Text(
                                 'Time: ${timestamp.toString().split('.')[0]}'),
                           );

@@ -5,21 +5,120 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from flask import Flask, request, jsonify
 import numpy as np
+import pandas as pd
+import pickle
+from scipy import signal
+from scipy.linalg import norm
+import utils
 
 app = Flask(__name__)
 
 # Initialize DynamoDB client
 dynamodb = boto3.client('dynamodb')
 
-def calculate_energy_expenditure(gyro_data: List[Dict[str, float]], acc_data: List[Dict[str, float]]) -> List[float]:
+# Load subject information from CSV
+subj_csv = pd.read_csv('./subject_info.csv')
+target_subj = 'S1'
+subj_info = {
+    'code': subj_csv.loc[subj_csv['subject'] == target_subj, 'subject'].values[0],
+    'weight': subj_csv.loc[subj_csv['subject'] == target_subj, 'weight'].values[0],
+    'height': subj_csv.loc[subj_csv['subject'] == target_subj, 'height'].values[0],
+    'gender': subj_csv.loc[subj_csv['subject'] == target_subj, 'gender'].values[0],
+    'age': subj_csv.loc[subj_csv['subject'] == target_subj, 'age'].values[0]
+}
+
+# Compute basal metabolic rate
+stand_aug_fact = 1.41  # Standing augmentation factor
+height = subj_info['height']
+weight = subj_info['weight']
+age = subj_info['age']
+gender = subj_info['gender']
+cur_basal = utils.basalEst(height, weight, age, gender, stand_aug_fact, kcalPerDay2Watt=0.048426)
+
+# Load models
+data_driven_model = pickle.load(open('./data_driven_ee_model.pkl', 'rb'))
+pocket_motion_correction_model = pickle.load(open('./pocket_motion_correction_model.pkl', 'rb'))
+
+# Constants for signal processing
+sampling_freq = 50  # Sampling frequency in Hz
+cutoff_freq = 6  # Crossover frequency for low-pass filter in Hz
+filt_order = 4  # Filter order
+sliding_win = 200  # Window size for sliding window in samples (4 seconds at 50Hz)
+gyro_norm_thres = 0.5  # Threshold for gyro norm in rad/s
+
+# Define low-pass filter parameters
+b, a = signal.butter(filt_order, cutoff_freq, btype='low', fs=sampling_freq)
+
+def calculate_energy_expenditure(gyro_data: List[Dict[str, float]], acc_data: List[Dict[str, float]], window_time: List[float]) -> List[float]:
     """
-    Calculate energy expenditure from gyroscope and accelerometer data.
-    This is a placeholder implementation that should be replaced with the actual algorithm.
+    Calculate energy expenditure from gyroscope and accelerometer data using the full pipeline.
     """
-    print(f"calculate_energy_expenditure called with {len(gyro_data)} data points")
-    values = [100.0, 95.0, 105.0, 373.42]  # Example: returns multiple values per window
-    print(f"Returning {len(values)} values: {', '.join(map(str, values))}")
-    return values
+    # Convert input data to numpy arrays
+    gyro_array = np.array([[d['x'], d['y'], d['z']] for d in gyro_data])
+    acc_array = np.array([[d['x'], d['y'], d['z']] for d in acc_data])
+    time_array = np.array(window_time)
+
+    # Calculate L2 norm of gyro data
+    l2_norm_gyro = np.linalg.norm(gyro_array)
+
+    if l2_norm_gyro > gyro_norm_thres:
+        # Apply low-pass filter
+        gyro_filtered = signal.filtfilt(b, a, gyro_array, axis=0)
+        acc_filtered = signal.filtfilt(b, a, acc_array, axis=0)
+
+        # Orientation alignment with superior-inferior axis
+        opt_rotm_z_pocket, theta_z = utils.get_rotate_z(acc_filtered)
+        gyro_rot_zx = np.matmul(gyro_filtered, opt_rotm_z_pocket)
+
+        # Find principal axis
+        prin_idx = utils.find_prin_axis(gyro_rot_zx)
+        prin_gyro = gyro_rot_zx[:, prin_idx]
+        
+        if np.abs(np.max(prin_gyro)) < np.abs(np.min(prin_gyro)):
+            prin_gyro = -prin_gyro
+
+        # Detect peaks
+        gait_peaks = utils.peak_detect(prin_gyro)
+        
+        if len(gait_peaks) > 1:
+            # Segment gait data
+            gait_data = utils.segment_data(gait_peaks, gyro_rot_zx, sliding_win)
+            if len(gait_data) < 1:
+                return [cur_basal]
+
+            # Orientation alignment with mediolateral axis
+            avg_gait_data = np.mean(gait_data, axis=0)
+            opt_rotm_y, theta_y = utils.get_rotate_y(avg_gait_data, prin_idx)
+            opt_rotm = np.matmul(opt_rotm_z_pocket, opt_rotm_y)
+            gyro_cal = np.matmul(gyro_filtered, opt_rotm)
+
+            # Adjust rotation if necessary
+            pos_idx = gyro_cal[:, -1] > 0
+            neg_idx = gyro_cal[:, -1] < 0
+            gyro_z_norm_pos = norm(gyro_cal[pos_idx, -1], ord=2)
+            gyro_z_norm_neg = norm(gyro_cal[neg_idx, -1], ord=2)
+            
+            if gyro_z_norm_pos <= gyro_z_norm_neg:
+                opt_rotm = np.matmul(opt_rotm, utils.rotm_y(np.pi))
+                gyro_cal = np.matmul(gyro_filtered, opt_rotm)
+
+            # Final gait segmentation and EE estimation
+            gait_peaks = utils.peak_detect(gyro_cal[:, -1])
+            ee_time, ee_est = utils.estimateMetabolics(
+                model=data_driven_model,
+                time=time_array,
+                gait_data=gyro_cal,
+                peak_index=gait_peaks,
+                weight=weight,
+                height=height,
+                stride_detect_window=sliding_win,
+                correction_model=pocket_motion_correction_model
+            )
+            return ee_est
+        else:
+            return [cur_basal]
+    else:
+        return [cur_basal]
 
 def process_window(window: List[Dict[str, Any]], window_index: int, session_id: str, user_email: str) -> List[Dict[str, Any]]:
     """
@@ -38,13 +137,21 @@ def process_window(window: List[Dict[str, Any]], window_index: int, session_id: 
         'z': float(item['Accelerometer_Z']['N'])
     } for item in window]
 
+    # Extract timestamps and convert to seconds since epoch
+    window_time = [
+        datetime.fromisoformat(item['Timestamp']['S'].replace('Z', '+00:00')).timestamp()
+        for item in window
+    ]
+
     print(f"\nProcessing window {window_index + 1}:")
     print(f"Window size: {len(window)}")
     print(f"Window start time: {window[0]['Timestamp']['S']}")
     print(f"Window end time: {window[-1]['Timestamp']['S']}")
 
     # Calculate energy expenditure for this window
-    ee_values = calculate_energy_expenditure(gyro_data, acc_data)
+    ee_values = calculate_energy_expenditure(gyro_data, acc_data, window_time)
+    # Convert numpy float32 to regular Python float
+    ee_values = [float(value) for value in ee_values]
     print(f"Window {window_index + 1} EE values: {ee_values}")
 
     results = []
@@ -160,7 +267,7 @@ def process_energy_expenditure():
         return jsonify({
             'message': 'Energy expenditure calculation completed',
             'session_id': session_id,
-            'total_windows_processed': len(all_results),
+            'total_windows_processed': len(all_sensor_data) / window_size,
             'results': all_results
         })
 
