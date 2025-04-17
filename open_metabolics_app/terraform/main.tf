@@ -283,7 +283,7 @@ resource "aws_lambda_permission" "energy_expenditure_api_gw" {
 
 # First, add SES configuration (add this before the user pool)
 resource "aws_ses_email_identity" "sender" {
-  email = "justin.sy.huang@gmail.com"
+  email = "justinhuang@seas.harvard.edu"
 }
 
 # Then update the user pool email configuration
@@ -348,7 +348,7 @@ resource "aws_cognito_user_pool" "user_pool" {
   # Make sure email sending is enabled
   email_configuration {
     email_sending_account = "DEVELOPER"
-    from_email_address    = "justin.sy.huang@gmail.com"
+    from_email_address    = "justinhuang@seas.harvard.edu"
     source_arn           = aws_ses_email_identity.sender.arn
   }
 
