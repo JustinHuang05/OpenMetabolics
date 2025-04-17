@@ -395,6 +395,14 @@ class _SensorScreenState extends State<SensorScreen> {
         print("✅ Energy expenditure processing completed!");
         print("📊 Results: ${responseData['results']}");
 
+        // Count actual gait cycles (EE values above basal rate)
+        final gaitCycles = responseData['results']
+            .where((result) =>
+                    (result['energyExpenditure'] as num) >
+                    118 // Assuming basal rate is around 1.0 W
+                )
+            .length;
+
         // Show results in a dialog with a scrollable list
         if (mounted) {
           showDialog(
@@ -409,8 +417,7 @@ class _SensorScreenState extends State<SensorScreen> {
                     Text(
                         'Total Windows Processed: ${responseData['total_windows_processed']}'),
                     SizedBox(height: 8),
-                    Text(
-                        'Total Gait Cycles Predicted: ${responseData['results'].length}'),
+                    Text('Total Gait Cycles Detected: $gaitCycles'),
                     SizedBox(height: 16),
                     Container(
                       height: 300, // Fixed height for the list
@@ -421,11 +428,13 @@ class _SensorScreenState extends State<SensorScreen> {
                           final result = responseData['results'][index];
                           // Parse the ISO timestamp string directly
                           final timestamp = DateTime.parse(result['timestamp']);
+                          final isGaitCycle =
+                              (result['energyExpenditure'] as num) > 118;
                           return ListTile(
                             title: Text(
                                 'EE: ${result['energyExpenditure'].toStringAsFixed(2)} W'),
                             subtitle: Text(
-                                'Time: ${timestamp.toString().split('.')[0]}'),
+                                'Time: ${timestamp.toString().split('.')[0]} ${isGaitCycle ? '(Gait Cycle)' : '(Resting)'}'),
                           );
                         },
                       ),
