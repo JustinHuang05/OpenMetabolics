@@ -260,14 +260,14 @@ def process_energy_expenditure():
             all_results.extend(window_results)
 
         print('\nFinal Results Summary:')
-        print(f"Total windows processed: {len(all_sensor_data) / window_size}")
+        print(f"Total windows processed: {round(len(all_sensor_data) / window_size)}")
         print(f"Total results: {len(all_results)}")
         print('Results:', json.dumps(all_results, indent=2))
 
         return jsonify({
             'message': 'Energy expenditure calculation completed',
             'session_id': session_id,
-            'total_windows_processed': len(all_sensor_data) / window_size,
+            'total_windows_processed': round(len(all_sensor_data) / window_size),
             'results': all_results
         })
 
