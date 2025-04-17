@@ -1,4 +1,5 @@
 boto3==1.26.137
 botocore==1.29.137
 flask==2.3.3
-werkzeug==2.3.7 
+werkzeug==2.3.7
+numpy==1.24.3 

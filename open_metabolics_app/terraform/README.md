@@ -321,3 +321,6 @@ The deployment process includes automatic building and pushing of the Docker ima
    ```bash
    ./scripts/build_and_push.sh
    ```
+TLDR
+1. build and push by running "./build_and_push.sh"
+2. terraform apply (and wait for the new task to pop up)

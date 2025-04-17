@@ -606,6 +606,14 @@ resource "aws_ecs_service" "energy_expenditure" {
     container_port   = 80
   }
 
+  # Force new deployment when the image changes
+  force_new_deployment = true
+
+  # Add a trigger to force new deployment when the image is updated
+  triggers = {
+    image_updated = null_resource.docker_build_push.id
+  }
+
   lifecycle {
     create_before_destroy = true
   }

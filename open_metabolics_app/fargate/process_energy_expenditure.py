@@ -4,6 +4,7 @@ import boto3
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from flask import Flask, request, jsonify
+import numpy as np
 
 app = Flask(__name__)
 
@@ -113,6 +114,7 @@ def process_energy_expenditure():
                     ':sessionId': {'S': session_id}
                 },
                 'Limit': 1000,  # Maximum items per query
+                'ScanIndexForward': True  # Sort by timestamp in ascending order
             }
             
             if last_evaluated_key:
@@ -134,6 +136,9 @@ def process_energy_expenditure():
             return jsonify({
                 'error': 'No sensor data found for this session'
             }), 404
+
+        # Sort the data by timestamp to ensure chronological order
+        all_sensor_data.sort(key=lambda x: x['Timestamp']['S'])
 
         print(f"Total items to process: {len(all_sensor_data)}")
 
