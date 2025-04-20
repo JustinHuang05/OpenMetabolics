@@ -44,7 +44,7 @@ sampling_freq = 50  # Sampling frequency in Hz
 cutoff_freq = 6  # Crossover frequency for low-pass filter in Hz
 filt_order = 4  # Filter order
 sliding_win = 200  # Window size for sliding window in samples (4 seconds at 50Hz)
-gyro_norm_thres = 0.5  # Threshold for gyro norm in rad/s
+gyro_norm_thres = 0  # Threshold for gyro norm in rad/s
 
 # Define low-pass filter parameters
 b, a = signal.butter(filt_order, cutoff_freq, btype='low', fs=sampling_freq)

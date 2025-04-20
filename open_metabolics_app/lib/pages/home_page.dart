@@ -27,7 +27,7 @@ class _SensorScreenState extends State<SensorScreen> {
   String _gyroscopeData = 'Gyroscope: (0, 0, 0)';
   bool _isTracking = false;
   bool _isAboveThreshold = false;
-  double _threshold = 0.5; // Threshold value for the average second norm
+  double _threshold = 0; // Threshold value for the average second norm
   int _samplesPerSecond = 50; // Desired samples per second
   int _rowCount = 0; // Count the number of rows saved
   final int _batchSize = 200; // Compare after 500 rows

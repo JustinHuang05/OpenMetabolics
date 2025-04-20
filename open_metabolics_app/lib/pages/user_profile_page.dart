@@ -168,7 +168,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
                 controller: _heightController,
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
-                  labelText: 'Height (cm)',
+                  labelText: 'Height (m)',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
