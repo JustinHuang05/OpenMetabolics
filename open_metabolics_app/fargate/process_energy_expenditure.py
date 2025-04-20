@@ -16,25 +16,6 @@ app = Flask(__name__)
 # Initialize DynamoDB client
 dynamodb = boto3.client('dynamodb')
 
-# Load subject information from CSV
-subj_csv = pd.read_csv('./subject_info.csv')
-target_subj = 'S1'
-subj_info = {
-    'code': subj_csv.loc[subj_csv['subject'] == target_subj, 'subject'].values[0],
-    'weight': subj_csv.loc[subj_csv['subject'] == target_subj, 'weight'].values[0],
-    'height': subj_csv.loc[subj_csv['subject'] == target_subj, 'height'].values[0],
-    'gender': subj_csv.loc[subj_csv['subject'] == target_subj, 'gender'].values[0],
-    'age': subj_csv.loc[subj_csv['subject'] == target_subj, 'age'].values[0]
-}
-
-# Compute basal metabolic rate
-stand_aug_fact = 1.41  # Standing augmentation factor
-height = subj_info['height']
-weight = subj_info['weight']
-age = subj_info['age']
-gender = subj_info['gender']
-cur_basal = utils.basalEst(height, weight, age, gender, stand_aug_fact, kcalPerDay2Watt=0.048426)
-
 # Load models
 data_driven_model = pickle.load(open('./data_driven_ee_model.pkl', 'rb'))
 pocket_motion_correction_model = pickle.load(open('./pocket_motion_correction_model.pkl', 'rb'))
@@ -49,76 +30,115 @@ gyro_norm_thres = 0  # Threshold for gyro norm in rad/s
 # Define low-pass filter parameters
 b, a = signal.butter(filt_order, cutoff_freq, btype='low', fs=sampling_freq)
 
-def calculate_energy_expenditure(gyro_data: List[Dict[str, float]], acc_data: List[Dict[str, float]], window_time: List[float]) -> List[float]:
-    """
-    Calculate energy expenditure from gyroscope and accelerometer data using the full pipeline.
-    """
-    # Convert input data to numpy arrays
-    gyro_array = np.array([[d['x'], d['y'], d['z']] for d in gyro_data])
-    acc_array = np.array([[d['x'], d['y'], d['z']] for d in acc_data])
-    time_array = np.array(window_time)
+def get_user_profile(user_email: str) -> Dict[str, Any]:
+    """Fetch user profile from DynamoDB"""
+    try:
+        response = dynamodb.get_item(
+            TableName=os.environ['USER_PROFILES_TABLE'],
+            Key={
+                'UserEmail': {'S': user_email.lower()}
+            }
+        )
+        
+        if 'Item' not in response:
+            raise Exception(f"User profile not found for email: {user_email}")
+            
+        item = response['Item']
+        return {
+            'weight': float(item['Weight']['N']),
+            'height': float(item['Height']['N']),
+            'age': int(item['Age']['N']),
+            'gender': item['Gender']['S']
+        }
+    except Exception as e:
+        print(f"Error fetching user profile: {e}")
+        raise
 
-    # Calculate L2 norm of gyro data
-    l2_norm_gyro = np.linalg.norm(gyro_array)
+def calculate_energy_expenditure(gyro_data: List[Dict[str, float]], acc_data: List[Dict[str, float]], window_time: List[float], user_email: str) -> List[float]:
+    """
+    Calculate energy expenditure from gyroscope and accelerometer data
+    """
+    try:
+        # Get user profile
+        user_profile = get_user_profile(user_email)
+        
+        # Compute basal metabolic rate
+        stand_aug_fact = 1.41  # Standing augmentation factor
+        height = user_profile['height']
+        weight = user_profile['weight']
+        age = user_profile['age']
+        gender = user_profile['gender']
+        cur_basal = utils.basalEst(height, weight, age, gender, stand_aug_fact, kcalPerDay2Watt=0.048426)
 
-    if l2_norm_gyro > gyro_norm_thres:
+        # Convert input data to numpy arrays
+        gyro_array = np.array([[d['x'], d['y'], d['z']] for d in gyro_data])
+        acc_array = np.array([[d['x'], d['y'], d['z']] for d in acc_data])
+        time_array = np.array(window_time)
+
         # Apply low-pass filter
         gyro_filtered = signal.filtfilt(b, a, gyro_array, axis=0)
         acc_filtered = signal.filtfilt(b, a, acc_array, axis=0)
 
-        # Orientation alignment with superior-inferior axis
-        opt_rotm_z_pocket, theta_z = utils.get_rotate_z(acc_filtered)
-        gyro_rot_zx = np.matmul(gyro_filtered, opt_rotm_z_pocket)
+        # Calculate L2 norm of gyro data
+        l2_norm_gyro = np.linalg.norm(gyro_filtered, axis=1)
 
-        # Find principal axis
-        prin_idx = utils.find_prin_axis(gyro_rot_zx)
-        prin_gyro = gyro_rot_zx[:, prin_idx]
-        
-        if np.abs(np.max(prin_gyro)) < np.abs(np.min(prin_gyro)):
-            prin_gyro = -prin_gyro
+        if np.max(l2_norm_gyro) > gyro_norm_thres:
+            # Orientation alignment with superior-inferior axis
+            opt_rotm_z_pocket, theta_z = utils.get_rotate_z(acc_filtered)
+            gyro_rot_zx = np.matmul(gyro_filtered, opt_rotm_z_pocket)
 
-        # Detect peaks
-        gait_peaks = utils.peak_detect(prin_gyro)
-        
-        if len(gait_peaks) > 1:
-            # Segment gait data
-            gait_data = utils.segment_data(gait_peaks, gyro_rot_zx, sliding_win)
-            if len(gait_data) < 1:
-                return [cur_basal]
+            # Find principal axis
+            prin_idx = utils.find_prin_axis(gyro_rot_zx)
+            prin_gyro = gyro_rot_zx[:, prin_idx]
 
-            # Orientation alignment with mediolateral axis
-            avg_gait_data = np.mean(gait_data, axis=0)
-            opt_rotm_y, theta_y = utils.get_rotate_y(avg_gait_data, prin_idx)
-            opt_rotm = np.matmul(opt_rotm_z_pocket, opt_rotm_y)
-            gyro_cal = np.matmul(gyro_filtered, opt_rotm)
+            if np.abs(np.max(prin_gyro)) < np.abs(np.min(prin_gyro)):
+                prin_gyro = -prin_gyro
 
-            # Adjust rotation if necessary
-            pos_idx = gyro_cal[:, -1] > 0
-            neg_idx = gyro_cal[:, -1] < 0
-            gyro_z_norm_pos = norm(gyro_cal[pos_idx, -1], ord=2)
-            gyro_z_norm_neg = norm(gyro_cal[neg_idx, -1], ord=2)
-            
-            if gyro_z_norm_pos <= gyro_z_norm_neg:
-                opt_rotm = np.matmul(opt_rotm, utils.rotm_y(np.pi))
+            # Detect peaks
+            gait_peaks = utils.peak_detect(prin_gyro)
+
+            if len(gait_peaks) > 1:
+                # Segment data
+                gait_data = utils.segment_data(gait_peaks, gyro_rot_zx, sliding_win)
+                if len(gait_data) < 1:
+                    return [cur_basal]
+
+                # Orientation alignment with mediolateral axis
+                avg_gait_data = np.mean(gait_data, axis=0)
+                opt_rotm_y, theta_y = utils.get_rotate_y(avg_gait_data, prin_idx)
+                opt_rotm = np.matmul(opt_rotm_z_pocket, opt_rotm_y)
                 gyro_cal = np.matmul(gyro_filtered, opt_rotm)
 
-            # Final gait segmentation and EE estimation
-            gait_peaks = utils.peak_detect(gyro_cal[:, -1])
-            ee_time, ee_est = utils.estimateMetabolics(
-                model=data_driven_model,
-                time=time_array,
-                gait_data=gyro_cal,
-                peak_index=gait_peaks,
-                weight=weight,
-                height=height,
-                stride_detect_window=sliding_win,
-                correction_model=pocket_motion_correction_model
-            )
-            return ee_est
+                # Adjust rotation if necessary
+                pos_idx = gyro_cal[:, -1] > 0
+                neg_idx = gyro_cal[:, -1] < 0
+                gyro_z_norm_pos = norm(gyro_cal[pos_idx, -1], ord=2)
+                gyro_z_norm_neg = norm(gyro_cal[neg_idx, -1], ord=2)
+                
+                if gyro_z_norm_pos <= gyro_z_norm_neg:
+                    opt_rotm = np.matmul(opt_rotm, utils.rotm_y(np.pi))
+                    gyro_cal = np.matmul(gyro_filtered, opt_rotm)
+
+                # Final gait segmentation and EE estimation
+                gait_peaks = utils.peak_detect(gyro_cal[:, -1])
+                ee_time, ee_est = utils.estimateMetabolics(
+                    model=data_driven_model,
+                    time=time_array,
+                    gait_data=gyro_cal,
+                    peak_index=gait_peaks,
+                    weight=weight,
+                    height=height,
+                    stride_detect_window=sliding_win,
+                    correction_model=pocket_motion_correction_model
+                )
+                return ee_est
+            else:
+                return [cur_basal]
         else:
             return [cur_basal]
-    else:
-        return [cur_basal]
+    except Exception as e:
+        print(f"Error calculating energy expenditure: {e}")
+        raise
 
 def process_window(window: List[Dict[str, Any]], window_index: int, session_id: str, user_email: str) -> List[Dict[str, Any]]:
     """
@@ -149,7 +169,7 @@ def process_window(window: List[Dict[str, Any]], window_index: int, session_id: 
     print(f"Window end time: {window[-1]['Timestamp']['S']}")
 
     # Calculate energy expenditure for this window
-    ee_values = calculate_energy_expenditure(gyro_data, acc_data, window_time)
+    ee_values = calculate_energy_expenditure(gyro_data, acc_data, window_time, user_email)
     # Convert numpy float32 to regular Python float
     ee_values = [float(value) for value in ee_values]
     print(f"Window {window_index + 1} EE values: {ee_values}")
@@ -215,7 +235,7 @@ def process_energy_expenditure():
         # Query all sensor data for this session with pagination
         while True:
             query_params = {
-                'TableName': os.environ['RAW_SENSOR_TABLE'],
+                'TableName': os.environ['RAW_SENSOR_TABLE'], 
                 'KeyConditionExpression': 'SessionId = :sessionId',
                 'ExpressionAttributeValues': {
                     ':sessionId': {'S': session_id}

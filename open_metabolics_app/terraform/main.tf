@@ -541,8 +541,8 @@ resource "aws_ecs_task_definition" "energy_expenditure" {
   family                   = "${var.project_name}-energy-expenditure"
   network_mode            = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                     = "1024"
-  memory                  = "2048"
+  cpu                     = 1024
+  memory                  = 2048
   execution_role_arn      = aws_iam_role.ecs_task_execution_role.arn
   task_role_arn           = aws_iam_role.ecs_task_role.arn
 
@@ -566,13 +566,17 @@ resource "aws_ecs_task_definition" "energy_expenditure" {
         {
           name  = "RESULTS_TABLE"
           value = aws_dynamodb_table.energy_expenditure_results.name
+        },
+        {
+          name  = "USER_PROFILES_TABLE"
+          value = aws_dynamodb_table.user_profiles.name
         }
       ]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.energy_expenditure.name
-          awslogs-region        = "us-east-1"
+          awslogs-region        = var.aws_region
           awslogs-stream-prefix = "ecs"
         }
       }
@@ -712,11 +716,13 @@ resource "aws_iam_role_policy" "ecs_task_role_policy" {
         Effect = "Allow"
         Action = [
           "dynamodb:Query",
-          "dynamodb:PutItem"
+          "dynamodb:PutItem",
+          "dynamodb:GetItem"
         ]
         Resource = [
           aws_dynamodb_table.raw_sensor_data.arn,
-          aws_dynamodb_table.energy_expenditure_results.arn
+          aws_dynamodb_table.energy_expenditure_results.arn,
+          aws_dynamodb_table.user_profiles.arn
         ]
       }
     ]
