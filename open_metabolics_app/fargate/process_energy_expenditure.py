@@ -284,11 +284,16 @@ def process_energy_expenditure():
         print(f"Total results: {len(all_results)}")
         print('Results:', json.dumps(all_results, indent=2))
 
+        # Get basal metabolic rate
+        user_profile = get_user_profile(user_email)
+        cur_basal = utils.basalEst(user_profile['height'], user_profile['weight'], user_profile['age'], user_profile['gender'], 1.41, kcalPerDay2Watt=0.048426)
+
         return jsonify({
             'message': 'Energy expenditure calculation completed',
             'session_id': session_id,
             'total_windows_processed': round(len(all_sensor_data) / window_size),
-            'results': all_results
+            'results': all_results,
+            'basal_metabolic_rate': cur_basal
         })
 
     except Exception as error:

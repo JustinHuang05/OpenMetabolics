@@ -395,11 +395,14 @@ class _SensorScreenState extends State<SensorScreen> {
         print("✅ Energy expenditure processing completed!");
         print("📊 Results: ${responseData['results']}");
 
+        // Get basal metabolic rate from response
+        final basalRate = responseData['basal_metabolic_rate'] as num;
+
         // Count actual gait cycles (EE values above basal rate)
         final gaitCycles = responseData['results']
             .where((result) =>
                     (result['energyExpenditure'] as num) >
-                    118 // Assuming basal rate is around 1.0 W
+                    basalRate // Use basal rate instead of hardcoded 118
                 )
             .length;
 
@@ -417,6 +420,9 @@ class _SensorScreenState extends State<SensorScreen> {
                     Text(
                         'Total Windows Processed: ${responseData['total_windows_processed']}'),
                     SizedBox(height: 8),
+                    Text(
+                        'Basal Metabolic Rate: ${basalRate.toStringAsFixed(2)} W'),
+                    SizedBox(height: 8),
                     Text('Total Gait Cycles Detected: $gaitCycles'),
                     SizedBox(height: 16),
                     Container(
@@ -429,7 +435,8 @@ class _SensorScreenState extends State<SensorScreen> {
                           // Parse the ISO timestamp string directly
                           final timestamp = DateTime.parse(result['timestamp']);
                           final isGaitCycle =
-                              (result['energyExpenditure'] as num) > 118;
+                              (result['energyExpenditure'] as num) >
+                                  basalRate; // Use basal rate here too
                           return ListTile(
                             title: Text(
                                 'EE: ${result['energyExpenditure'].toStringAsFixed(2)} W'),
