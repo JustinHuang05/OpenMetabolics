@@ -51,4 +51,14 @@ terraform.tfstate.backup
 # Ignore zip files (for AWS Lambda deployments)
 *.zip
 
+# Environment files
+.env
+.env.development
+.env.production
+*.env
+
+# Generated configuration files
+lib/config/generated_config.dart
+lib/auth/generated_amplify_config.dart
+
 

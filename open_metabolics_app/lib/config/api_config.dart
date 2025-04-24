@@ -1,21 +1,22 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 class ApiConfig {
   // Base URL for the API Gateway
-  static const String baseUrl =
-      'https://8er7mk5gp2.execute-api.us-east-1.amazonaws.com/dev';
+  static String get baseUrl => dotenv.env['API_GATEWAY_BASE_URL'] ?? '';
 
   // User Profile Endpoints
-  static const String getUserProfile = '$baseUrl/get-user-profile';
-  static const String manageUserProfile = '$baseUrl/manage-user-profile';
+  static String get getUserProfile => '$baseUrl/get-user-profile';
+  static String get manageUserProfile => '$baseUrl/manage-user-profile';
 
   // Sensor Data Endpoints
-  static const String saveRawSensorData = '$baseUrl/save-raw-sensor-data';
-  static const String processEnergyExpenditure =
+  static String get saveRawSensorData => '$baseUrl/save-raw-sensor-data';
+  static String get processEnergyExpenditure =>
       '$baseUrl/process-energy-expenditure';
 
   // Fargate service URL
-  static const String energyExpenditureServiceUrl =
-      'http://open-metabolics-ee-lb-439992323.us-east-1.elb.amazonaws.com/process';
+  static String get energyExpenditureServiceUrl =>
+      dotenv.env['FARGATE_SERVICE_URL'] ?? '';
 
   // New endpoint for getting past sessions
-  static const String getPastSessions = '$baseUrl/get-past-sessions';
+  static String get getPastSessions => '$baseUrl/get-past-sessions';
 }

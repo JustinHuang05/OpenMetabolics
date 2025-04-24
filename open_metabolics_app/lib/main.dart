@@ -6,16 +6,20 @@ import 'package:amplify_flutter/amplify_flutter.dart';
 import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
 import 'auth/amplify_config.dart';
 import 'providers/user_profile_provider.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-void main() async {
+Future<void> main() async {
+  // Load environment variables
+  await dotenv.load(fileName: ".env");
+
   WidgetsFlutterBinding.ensureInitialized();
 
   // Configure Amplify
   try {
     final auth = AmplifyAuthCognito();
     await Amplify.addPlugin(auth);
-    await Amplify.configure(amplifyconfig);
-    print('Amplify configured successfully');
+    await Amplify.configure(getAmplifyConfig());
+    print('Successfully configured Amplify');
   } catch (e) {
     print('Error configuring Amplify: $e');
   }
