@@ -1,0 +1,47 @@
+class Session {
+  final String sessionId;
+  final String timestamp;
+  final List<SessionResult> results;
+  final double? basalMetabolicRate;
+
+  Session({
+    required this.sessionId,
+    required this.timestamp,
+    required this.results,
+    this.basalMetabolicRate,
+  });
+
+  factory Session.fromJson(Map<String, dynamic> json) {
+    return Session(
+      sessionId: json['sessionId'],
+      timestamp: json['timestamp'],
+      results: (json['results'] as List)
+          .map((result) => SessionResult.fromJson(result))
+          .toList(),
+      basalMetabolicRate: json['basalMetabolicRate']?.toDouble(),
+    );
+  }
+}
+
+class SessionResult {
+  final String timestamp;
+  final double energyExpenditure;
+  final int windowIndex;
+  final int gaitCycleIndex;
+
+  SessionResult({
+    required this.timestamp,
+    required this.energyExpenditure,
+    required this.windowIndex,
+    required this.gaitCycleIndex,
+  });
+
+  factory SessionResult.fromJson(Map<String, dynamic> json) {
+    return SessionResult(
+      timestamp: json['timestamp'],
+      energyExpenditure: json['energyExpenditure'].toDouble(),
+      windowIndex: json['windowIndex'],
+      gaitCycleIndex: json['gaitCycleIndex'],
+    );
+  }
+}

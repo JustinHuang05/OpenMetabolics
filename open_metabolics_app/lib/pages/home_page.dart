@@ -16,6 +16,7 @@ import 'user_profile_page.dart';
 import '../models/user_profile.dart';
 import '../providers/user_profile_provider.dart';
 import '../config/api_config.dart';
+import 'past_sessions_page.dart';
 
 class SensorScreen extends StatefulWidget {
   @override
@@ -490,6 +491,20 @@ class _SensorScreenState extends State<SensorScreen> {
         ),
         backgroundColor: lightPurple,
         actions: [
+          IconButton(
+            icon: Icon(
+              Icons.history,
+              color: textGray,
+            ),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PastSessionsPage(),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: Icon(
               Icons.person,

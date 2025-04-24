@@ -490,6 +490,61 @@ resource "aws_lambda_permission" "get_user_profile_api_gw" {
   source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
 }
 
+# Archive Lambda function code for getting past sessions
+data "archive_file" "get_past_sessions_zip" {
+  type        = "zip"
+  source_file = "${path.module}/lambda/get_past_sessions.js"
+  output_path = "${path.module}/lambda/get_past_sessions_function.zip"
+}
+
+# Lambda Function for getting past sessions
+resource "aws_lambda_function" "get_past_sessions_handler" {
+  filename         = data.archive_file.get_past_sessions_zip.output_path
+  function_name    = "get-past-sessions"
+  role            = aws_iam_role.lambda_role.arn
+  handler         = "get_past_sessions.handler"
+  runtime         = "nodejs18.x"
+  timeout         = 30
+  memory_size     = 256
+  source_code_hash = data.archive_file.get_past_sessions_zip.output_base64sha256
+
+  environment {
+    variables = {
+      RESULTS_TABLE = aws_dynamodb_table.energy_expenditure_results.name
+    }
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# API Gateway integration for getting past sessions
+resource "aws_apigatewayv2_integration" "get_past_sessions_integration" {
+  api_id           = aws_apigatewayv2_api.lambda_api.id
+  integration_type = "AWS_PROXY"
+
+  connection_type    = "INTERNET"
+  description       = "Get past sessions Lambda integration"
+  integration_method = "POST"
+  integration_uri    = aws_lambda_function.get_past_sessions_handler.invoke_arn
+}
+
+resource "aws_apigatewayv2_route" "get_past_sessions_route" {
+  api_id    = aws_apigatewayv2_api.lambda_api.id
+  route_key = "POST /get-past-sessions"
+  target    = "integrations/${aws_apigatewayv2_integration.get_past_sessions_integration.id}"
+}
+
+resource "aws_lambda_permission" "get_past_sessions_api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.get_past_sessions_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
+}
+
 # ECR Repository for Fargate service
 resource "aws_ecr_repository" "energy_expenditure_service" {
   name = "${var.project_name}-energy-expenditure-service"

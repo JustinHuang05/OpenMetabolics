@@ -15,4 +15,7 @@ class ApiConfig {
   // Fargate service URL
   static const String energyExpenditureServiceUrl =
       'http://open-metabolics-ee-lb-439992323.us-east-1.elb.amazonaws.com/process';
+
+  // New endpoint for getting past sessions
+  static const String getPastSessions = '$baseUrl/get-past-sessions';
 }

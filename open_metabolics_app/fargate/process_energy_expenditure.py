@@ -140,7 +140,7 @@ def calculate_energy_expenditure(gyro_data: List[Dict[str, float]], acc_data: Li
         print(f"Error calculating energy expenditure: {e}")
         raise
 
-def process_window(window: List[Dict[str, Any]], window_index: int, session_id: str, user_email: str) -> List[Dict[str, Any]]:
+def process_window(window: List[Dict[str, Any]], window_index: int, session_id: str, user_email: str, cur_basal: float) -> List[Dict[str, Any]]:
     """
     Process a window of sensor data and calculate energy expenditure values.
     """
@@ -189,6 +189,7 @@ def process_window(window: List[Dict[str, Any]], window_index: int, session_id: 
         print(f"Time per cycle: {time_per_gait_cycle}")
         print(f"Timestamp: {gait_cycle_timestamp.isoformat()}")
         print(f"EE value: {ee_value}")
+        print(f"Basal metabolic rate: {cur_basal}")
 
         # Store result in DynamoDB
         result_item = {
@@ -199,7 +200,8 @@ def process_window(window: List[Dict[str, Any]], window_index: int, session_id: 
                 'UserEmail': {'S': user_email},
                 'EnergyExpenditure': {'N': str(ee_value)},
                 'WindowIndex': {'N': str(window_index)},
-                'GaitCycleIndex': {'N': str(j)}
+                'GaitCycleIndex': {'N': str(j)},
+                'BasalMetabolicRate': {'N': str(cur_basal)}  # Store the actual BMR
             }
         }
 
@@ -226,6 +228,11 @@ def process_energy_expenditure():
 
         session_id = data['session_id']
         user_email = data['user_email']
+
+        # Get user profile and calculate basal metabolic rate
+        user_profile = get_user_profile(user_email)
+        cur_basal = utils.basalEst(user_profile['height'], user_profile['weight'], user_profile['age'], user_profile['gender'], 1.41, kcalPerDay2Watt=0.048426)
+        print(f"Calculated basal metabolic rate: {cur_basal}")
 
         # Initialize variables for pagination
         last_evaluated_key = None
@@ -276,17 +283,13 @@ def process_energy_expenditure():
         # Process each window
         for i in range(0, len(all_sensor_data), window_size):
             window = all_sensor_data[i:i + window_size]
-            window_results = process_window(window, i // window_size, session_id, user_email)
+            window_results = process_window(window, i // window_size, session_id, user_email, cur_basal)
             all_results.extend(window_results)
 
         print('\nFinal Results Summary:')
         print(f"Total windows processed: {round(len(all_sensor_data) / window_size)}")
         print(f"Total results: {len(all_results)}")
         print('Results:', json.dumps(all_results, indent=2))
-
-        # Get basal metabolic rate
-        user_profile = get_user_profile(user_email)
-        cur_basal = utils.basalEst(user_profile['height'], user_profile['weight'], user_profile['age'], user_profile['gender'], 1.41, kcalPerDay2Watt=0.048426)
 
         return jsonify({
             'message': 'Energy expenditure calculation completed',

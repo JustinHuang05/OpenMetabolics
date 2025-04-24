@@ -1,12 +1,10 @@
 {
-  "name": "sensor-data-handler",
+  "name": "get-past-sessions",
   "version": "1.0.0",
-  "description": "Lambda function to handle sensor data and save to DynamoDB",
-  "main": "index.js",
+  "description": "Lambda function to get past sessions",
+  "main": "get_past_sessions.js",
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.0.0"
-  },
-  "scripts": {
-    "zip": "zip -r ../lambda.zip ."
+    "@aws-sdk/client-dynamodb": "^3.525.0",
+    "@aws-sdk/util-dynamodb": "^3.525.0"
   }
 } 
