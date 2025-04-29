@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 class EnergyExpenditureCard extends StatelessWidget {
   final DateTime timestamp;
   final double energyExpenditure;
   final bool isGaitCycle;
+  final DateFormat _timeFormat = DateFormat('HH:mm:ss');
+  final DateFormat _dateFormat = DateFormat('MMMM d, y');
 
-  const EnergyExpenditureCard({
+  EnergyExpenditureCard({
     Key? key,
     required this.timestamp,
     required this.energyExpenditure,
@@ -68,7 +71,7 @@ class EnergyExpenditureCard extends StatelessWidget {
                       ),
                       SizedBox(height: 2),
                       Text(
-                        timestamp.toString().split('.')[0],
+                        '${_dateFormat.format(timestamp.toLocal())} at ${_timeFormat.format(timestamp.toLocal())}',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey[500],

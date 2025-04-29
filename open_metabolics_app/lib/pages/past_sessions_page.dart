@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:intl/intl.dart';
 import '../config/api_config.dart';
 import '../models/session.dart';
 import 'session_details_page.dart';
@@ -16,6 +17,8 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   List<SessionSummary> _sessions = [];
   bool _isLoading = true;
   String? _errorMessage;
+  final DateFormat _dateFormat = DateFormat('MMMM d, y');
+  final DateFormat _timeFormat = DateFormat('HH:mm:ss');
 
   @override
   void initState() {
@@ -60,6 +63,11 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
       });
       print('Error fetching past sessions: $e');
     }
+  }
+
+  String _formatTimestamp(String timestamp) {
+    final dateTime = DateTime.parse(timestamp).toLocal();
+    return '${_dateFormat.format(dateTime)} at ${_timeFormat.format(dateTime)}';
   }
 
   @override
@@ -166,7 +174,8 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                                                 CrossAxisAlignment.start,
                                             children: [
                                               Text(
-                                                date.toString().split('.')[0],
+                                                _formatTimestamp(
+                                                    session.timestamp),
                                                 style: Theme.of(context)
                                                     .textTheme
                                                     .titleMedium,

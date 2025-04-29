@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:intl/intl.dart';
 import '../models/session.dart';
 import '../widgets/energy_expenditure_card.dart';
 import '../widgets/energy_expenditure_chart.dart';
@@ -26,6 +27,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   String? _errorMessage;
   bool _isLoading = true;
   bool _isChartVisible = false;
+  final DateFormat _dateFormat = DateFormat('MMMM d, y');
+  final DateFormat _timeFormat = DateFormat('HH:mm:ss');
 
   @override
   void initState() {
@@ -69,6 +72,11 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       });
       print('Error fetching session details: $e');
     }
+  }
+
+  String _formatTimestamp(String timestamp) {
+    final dateTime = DateTime.parse(timestamp).toLocal();
+    return '${_dateFormat.format(dateTime)} at ${_timeFormat.format(dateTime)}';
   }
 
   @override
@@ -171,7 +179,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   SizedBox(width: 8),
                   Flexible(
                     child: Text(
-                      DateTime.parse(widget.timestamp).toString().split('.')[0],
+                      _formatTimestamp(widget.timestamp),
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),

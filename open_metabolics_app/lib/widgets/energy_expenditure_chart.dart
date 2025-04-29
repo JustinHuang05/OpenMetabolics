@@ -23,8 +23,9 @@ class _EnergyExpenditureChartState extends State<EnergyExpenditureChart> {
   List<FlSpot> _getSpots() {
     // Sort results by timestamp to match card order
     final sortedResults = List<SessionResult>.from(widget.results);
-    sortedResults.sort((a, b) =>
-        DateTime.parse(a.timestamp).compareTo(DateTime.parse(b.timestamp)));
+    sortedResults.sort((a, b) => DateTime.parse(a.timestamp)
+        .toLocal()
+        .compareTo(DateTime.parse(b.timestamp).toLocal()));
 
     return sortedResults.asMap().entries.map((entry) {
       return FlSpot(
@@ -39,10 +40,12 @@ class _EnergyExpenditureChartState extends State<EnergyExpenditureChart> {
     if (index >= 0 && index < widget.results.length) {
       // Sort results to match the spots
       final sortedResults = List<SessionResult>.from(widget.results);
-      sortedResults.sort((a, b) =>
-          DateTime.parse(a.timestamp).compareTo(DateTime.parse(b.timestamp)));
+      sortedResults.sort((a, b) => DateTime.parse(a.timestamp)
+          .toLocal()
+          .compareTo(DateTime.parse(b.timestamp).toLocal()));
 
-      final timestamp = DateTime.parse(sortedResults[index].timestamp);
+      final timestamp =
+          DateTime.parse(sortedResults[index].timestamp).toLocal();
       return dateFormat.format(timestamp);
     }
     return '';
@@ -69,6 +72,14 @@ class _EnergyExpenditureChartState extends State<EnergyExpenditureChart> {
               gridData: const FlGridData(show: true),
               titlesData: FlTitlesData(
                 leftTitles: AxisTitles(
+                  axisNameWidget: const Text(
+                    'EE (Watts)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  axisNameSize: 25,
                   sideTitles: SideTitles(
                     showTitles: true,
                     reservedSize: 40,
@@ -81,15 +92,27 @@ class _EnergyExpenditureChartState extends State<EnergyExpenditureChart> {
                   ),
                 ),
                 bottomTitles: AxisTitles(
+                  axisNameWidget: const Text(
+                    'Time',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  axisNameSize: 25,
                   sideTitles: SideTitles(
                     showTitles: true,
+                    reservedSize: 35, // Increased to accommodate rotated text
                     getTitlesWidget: (value, meta) {
                       if (value % 5 != 0) return const Text('');
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 8.0),
-                        child: Text(
-                          _getTimeLabel(value),
-                          style: const TextStyle(fontSize: 10),
+                      return Transform.rotate(
+                        angle: -0.785398, // -45 degrees in radians
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 8.0, right: 15.0),
+                          child: Text(
+                            _getTimeLabel(value),
+                            style: const TextStyle(fontSize: 10),
+                          ),
                         ),
                       );
                     },
@@ -105,8 +128,8 @@ class _EnergyExpenditureChartState extends State<EnergyExpenditureChart> {
               borderData: FlBorderData(show: true),
               minX: 0,
               maxX: (spots.length - 1).toDouble(),
-              minY: minY - padding,
-              maxY: maxY + padding,
+              minY: 0,
+              maxY: maxY,
               lineBarsData: [
                 // Energy expenditure line
                 LineChartBarData(
