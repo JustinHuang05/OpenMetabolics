@@ -251,6 +251,47 @@ class _SensorScreenState extends State<SensorScreen> {
     _rowCount = 0; // Reset row count for the next batch
   }
 
+  Future<void> _loadCSVData() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final path = '${directory.path}/sensor_data.csv';
+      final file = File(path);
+
+      if (!await file.exists()) {
+        print('CSV file does not exist');
+        setState(() {
+          _csvData = [];
+        });
+        return;
+      }
+
+      // Read CSV file line-by-line
+      List<String> csvLines = await file.readAsLines();
+
+      if (csvLines.length <= 1) {
+        print("CSV file contains no data.");
+        setState(() {
+          _csvData = [];
+        });
+        return;
+      }
+
+      // Convert lines to CSV table format
+      List<List<dynamic>> csvTable =
+          csvLines.map((line) => line.split(',')).toList();
+
+      // Update the state with the loaded CSV data
+      setState(() {
+        _csvData = csvTable;
+      });
+    } catch (e) {
+      print('Error loading CSV data: $e');
+      setState(() {
+        _csvData = [];
+      });
+    }
+  }
+
   void _stopTracking() async {
     print('Stop button pressed');
     SensorChannel.stopSensors(); // Stop sensors via platform channel
@@ -261,7 +302,24 @@ class _SensorScreenState extends State<SensorScreen> {
       _isTracking = false;
     });
 
-    // Show loading dialog immediately when stop is pressed
+    // Stop recording and save data
+    await _sensorDataRecorder.stopRecording();
+    await _loadCSVData(); // Load CSV data to display in ListView
+
+    // Only proceed with processing if we have data
+    if (_csvData.isEmpty) {
+      print("No data collected during tracking session");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'No data was collected during this session. Please try again.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // Show loading dialog since we have data to process
     if (mounted) {
       showDialog(
         context: context,
@@ -306,30 +364,7 @@ class _SensorScreenState extends State<SensorScreen> {
       );
     }
 
-    // Stop recording and save data
-    await _sensorDataRecorder.stopRecording();
-    await _loadCSVData(); // Load CSV data to display in ListView
     await _uploadCSVToServer(); // Upload CSV to AWS Lambda
-  }
-
-  Future<void> _loadCSVData() async {
-    try {
-      // Read the CSV file and parse its content
-      final directory = await getApplicationDocumentsDirectory();
-      final path = '${directory.path}/sensor_data.csv';
-      final file = File(path);
-
-      // Load CSV data from file
-      final csvContent = await file.readAsString();
-      List<List<dynamic>> csvTable = CsvToListConverter().convert(csvContent);
-
-      // Update the state with the loaded CSV data
-      setState(() {
-        _csvData = csvTable;
-      });
-    } catch (e) {
-      print('Error loading CSV data: $e');
-    }
   }
 
   Future<void> _uploadCSVToServer() async {
@@ -665,41 +700,242 @@ class _SensorScreenState extends State<SensorScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      if (_isTracking)
-                        Text(
-                          _accelerometerData,
-                          style: Theme.of(context).textTheme.headline6,
-                        ),
-                      if (_isTracking) SizedBox(height: 16),
-                      if (_isTracking)
-                        Text(
-                          _gyroscopeData,
-                          style: Theme.of(context).textTheme.headline6,
-                        ),
-                      if (_isTracking && _isAboveThreshold)
-                        SizedBox(height: 16),
-                      if (_isTracking && _isAboveThreshold)
-                        Text(
-                          'Gyroscope movement exceeded threshold!',
-                          style: TextStyle(
-                            color: Colors.red,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                      if (_isTracking) ...[
+                        Card(
+                          elevation: 4,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.sensors, color: lightPurple),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Live Sensor Data',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: textGray,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: 16),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Container(
+                                        padding: EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue.withOpacity(0.1),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          border: Border.all(
+                                            color: Colors.blue.withOpacity(0.3),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Icon(Icons.speed,
+                                                    color: Colors.blue,
+                                                    size: 20),
+                                                SizedBox(width: 8),
+                                                Text(
+                                                  'Accelerometer',
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w500,
+                                                    color: Colors.blue,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            SizedBox(height: 8),
+                                            Text(
+                                              _accelerometerData.split(': ')[1],
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontFamily: 'monospace',
+                                                color: Colors.blue.shade900,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Container(
+                                        padding: EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.withOpacity(0.1),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          border: Border.all(
+                                            color:
+                                                Colors.green.withOpacity(0.3),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Icon(Icons.rotate_right,
+                                                    color: Colors.green,
+                                                    size: 20),
+                                                SizedBox(width: 8),
+                                                Text(
+                                                  'Gyroscope',
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w500,
+                                                    color: Colors.green,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            SizedBox(height: 8),
+                                            Text(
+                                              _gyroscopeData.split(': ')[1],
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontFamily: 'monospace',
+                                                color: Colors.green.shade900,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (_isAboveThreshold) ...[
+                                  SizedBox(height: 16),
+                                  Container(
+                                    padding: EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                          color: Colors.red.withOpacity(0.3)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.warning_amber_rounded,
+                                            color: Colors.red),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'Movement threshold exceeded',
+                                          style: TextStyle(
+                                            color: Colors.red,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         ),
-                      SizedBox(height: 16),
-                      // Display CSV data in a ListView
-                      Expanded(
-                        child: ListView.builder(
-                          itemCount: _csvData.length,
-                          itemBuilder: (context, index) {
-                            final row = _csvData[index];
-                            return ListTile(
-                              title: Text(row.join(', ')),
-                            );
-                          },
+                        SizedBox(height: 16),
+                      ],
+                      if (_csvData.isNotEmpty) ...[
+                        Text(
+                          'Captured Data',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: textGray,
+                          ),
                         ),
-                      ),
+                        SizedBox(height: 8),
+                        Expanded(
+                          child: Card(
+                            elevation: 2,
+                            color: Colors.grey.shade100,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: ListView.separated(
+                              padding: EdgeInsets.all(16),
+                              itemCount: _csvData.length,
+                              separatorBuilder: (context, index) => Divider(
+                                height: 1,
+                                color: Colors.grey.shade300,
+                              ),
+                              itemBuilder: (context, index) {
+                                final row = _csvData[index];
+                                return Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 8),
+                                  child: Text(
+                                    row.join(', '),
+                                    style: TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 12,
+                                      color: index == 0
+                                          ? Colors.grey.shade800
+                                          : Colors.grey.shade600,
+                                      fontWeight: index == 0
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ] else if (!_isTracking) ...[
+                        Expanded(
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.sensors_off,
+                                  size: 64,
+                                  color: Colors.grey.shade400,
+                                ),
+                                SizedBox(height: 16),
+                                Text(
+                                  'No Sensor Data',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Press the Start button to begin recording',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
