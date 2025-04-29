@@ -698,9 +698,21 @@ resource "aws_ecr_lifecycle_policy" "energy_expenditure_service" {
   })
 }
 
+# Create ECS service-linked role
+resource "aws_iam_service_linked_role" "ecs" {
+  aws_service_name = "ecs.amazonaws.com"
+  description      = "Service-linked role for ECS"
+}
+
 # ECS Cluster
 resource "aws_ecs_cluster" "main" {
   name = "${var.project_name}-cluster"
+  depends_on = [aws_iam_service_linked_role.ecs]
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
 }
 
 # ECS Task Definition
