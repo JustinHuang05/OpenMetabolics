@@ -1,0 +1,26 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:CreateTable",
+                "dynamodb:DeleteTable",
+                "dynamodb:DescribeTable",
+                "iam:CreateRole",
+                "iam:DeleteRole",
+                "iam:PutRolePolicy",
+                "iam:GetRolePolicy",
+                "apigateway:*",
+                "ses:*",
+                "ecr:*",
+                "ecs:*",
+                "logs:*",
+                "ec2:*",
+                "lambda:*",
+                "s3:*"
+            ],
+            "Resource": "*"
+        }
+    ]
+} 

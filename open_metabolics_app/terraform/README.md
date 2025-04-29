@@ -18,16 +18,51 @@ terraform/
 ├── README.md         # This file
 ├── scripts/         # Scripts directory
 │   └── build_and_push.sh  # Script to build and push Docker image
+├── terraform_user_policy.json  # IAM policy for Terraform deployment
 └── lambda/           # Lambda function code
     ├── index.js      # Lambda function implementation
     └── package.json  # Node.js dependencies
 ```
 
+## Required IAM Permissions
+
+Before deploying the infrastructure, you need to set up an IAM user and permissions:
+
+1. **Create IAM User**:
+
+   - Go to AWS Console → IAM → Users
+   - Click "Create user"
+   - Enter a username
+   - Select "Access key - Programmatic access"
+   - Click "Next"
+   - Save the Access Key ID and Secret Access Key shown - you'll need these later
+   - **Important**: This is the only time you'll see the Secret Access Key!
+
+2. **Create IAM Policy**:
+
+   - Go to AWS Console → IAM → Policies
+   - Click "Create Policy"
+   - Choose "JSON" tab
+   - Copy and paste the contents of `terraform_user_policy.json` from this directory
+   - Click "Next"
+   - Name the policy `OpenMetabolicsTerraformDeployment`
+   - Click "Create Policy"
+
+3. **Attach Policy to User**:
+   - Go to AWS Console → IAM → Users
+   - Click on the user you just created
+   - Click "Add permissions"
+   - Choose "Attach policies directly"
+   - Search for `OpenMetabolicsTerraformDeployment`
+   - Select it and click "Add permissions"
+
+The policy grants permissions for creating and managing all necessary AWS resources including DynamoDB tables, Lambda functions, API Gateway, and more.
+
 ## Deployment Steps
 
 1. **Configure AWS Credentials**
 
-   To find this stuff go to IAM and make an access key
+   Use the access key from the user creation step:
 
    ```bash
    aws configure
@@ -321,9 +356,9 @@ The deployment process includes automatic building and pushing of the Docker ima
    ```bash
    ./scripts/build_and_push.sh
    ```
-TLDR
-1. build and push by running "./build_and_push.sh"
-2. terraform apply (and wait for the new task to pop up)
-3. Ok maybe this doesnt work and just go to aws and update --> force new deployment
+   TLDR
+4. build and push by running "./build_and_push.sh"
+5. terraform apply (and wait for the new task to pop up)
+6. Ok maybe this doesnt work and just go to aws and update --> force new deployment
 
 --> Ok now i think if you change stuff the terraform will build and push for you and run the new task hopefully
