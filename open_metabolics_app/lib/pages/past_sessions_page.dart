@@ -64,6 +64,8 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final Color textGray = Color.fromRGBO(66, 66, 66, 1);
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Past Sessions'),
@@ -120,28 +122,70 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                     )
                   : RefreshIndicator(
                       onRefresh: _fetchPastSessions,
-                      child: ListView.builder(
-                        itemCount: _sessions.length,
-                        itemBuilder: (context, index) {
-                          final session = _sessions[index];
-                          final date = DateTime.parse(session.timestamp);
-                          return ListTile(
-                            title: Text(
-                                'Session ${date.toString().split('.')[0]}'),
-                            subtitle:
-                                Text('${session.results.length} measurements'),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => SessionDetailsPage(
-                                    session: session,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: ListView.builder(
+                          itemCount: _sessions.length,
+                          itemBuilder: (context, index) {
+                            final session = _sessions[index];
+                            final date = DateTime.parse(session.timestamp);
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8.0),
+                              child: Card(
+                                elevation: 2,
+                                child: InkWell(
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            SessionDetailsPage(
+                                          session: session,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16.0),
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.calendar_today,
+                                            color: textGray, size: 24),
+                                        SizedBox(width: 16),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                date.toString().split('.')[0],
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium,
+                                              ),
+                                              SizedBox(height: 4),
+                                              Text(
+                                                '${session.results.length} measurements',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodyMedium
+                                                    ?.copyWith(
+                                                      color: Colors.grey[600],
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Icon(Icons.chevron_right,
+                                            color: Colors.grey[400]),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              );
-                            },
-                          );
-                        },
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
     );

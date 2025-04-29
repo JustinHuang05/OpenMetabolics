@@ -17,6 +17,7 @@ import '../models/user_profile.dart';
 import '../providers/user_profile_provider.dart';
 import '../config/api_config.dart';
 import 'past_sessions_page.dart';
+import '../widgets/energy_expenditure_card.dart';
 
 class SensorScreen extends StatefulWidget {
   @override
@@ -260,6 +261,51 @@ class _SensorScreenState extends State<SensorScreen> {
       _isTracking = false;
     });
 
+    // Show loading dialog immediately when stop is pressed
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Container(
+            constraints: BoxConstraints(maxWidth: 300),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text(
+                  'Processing Session Data...',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                ),
+                SizedBox(height: 8),
+                Column(
+                  children: [
+                    Text(
+                      'Saving sensor data',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                      textAlign: TextAlign.center,
+                    ),
+                    Text(
+                      'Uploading to server',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                      textAlign: TextAlign.center,
+                    ),
+                    Text(
+                      'Calculating energy expenditure',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     // Stop recording and save data
     await _sensorDataRecorder.stopRecording();
     await _loadCSVData(); // Load CSV data to display in ListView
@@ -391,6 +437,11 @@ class _SensorScreenState extends State<SensorScreen> {
         body: jsonEncode(payload),
       );
 
+      // Close loading dialog
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+
       if (response.statusCode == 200) {
         final responseData = jsonDecode(response.body);
         print("✅ Energy expenditure processing completed!");
@@ -401,61 +452,118 @@ class _SensorScreenState extends State<SensorScreen> {
 
         // Count actual gait cycles (EE values above basal rate)
         final gaitCycles = responseData['results']
-            .where((result) =>
-                    (result['energyExpenditure'] as num) >
-                    basalRate // Use basal rate instead of hardcoded 118
-                )
+            .where((result) => (result['energyExpenditure'] as num) > basalRate)
             .length;
 
         // Show results in a dialog with a scrollable list
         if (mounted) {
           showDialog(
             context: context,
-            builder: (context) => AlertDialog(
-              title: Text('Energy Expenditure Results'),
-              content: Container(
-                width: double.maxFinite,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                        'Total Windows Processed: ${responseData['total_windows_processed']}'),
-                    SizedBox(height: 8),
-                    Text(
-                        'Basal Metabolic Rate: ${basalRate.toStringAsFixed(2)} W'),
-                    SizedBox(height: 8),
-                    Text('Total Gait Cycles Detected: $gaitCycles'),
-                    SizedBox(height: 16),
-                    Container(
-                      height: 300, // Fixed height for the list
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: responseData['results'].length,
-                        itemBuilder: (context, index) {
-                          final result = responseData['results'][index];
-                          // Parse the ISO timestamp string directly
-                          final timestamp = DateTime.parse(result['timestamp']);
-                          final isGaitCycle =
-                              (result['energyExpenditure'] as num) >
-                                  basalRate; // Use basal rate here too
-                          return ListTile(
-                            title: Text(
-                                'EE: ${result['energyExpenditure'].toStringAsFixed(2)} W'),
-                            subtitle: Text(
-                                'Time: ${timestamp.toString().split('.')[0]} ${isGaitCycle ? '(Gait Cycle)' : '(Resting)'}'),
-                          );
-                        },
+            builder: (context) => Dialog(
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.9,
+                  maxHeight: MediaQuery.of(context).size.height * 0.8,
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Title section with icon
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16.0),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check_circle, color: Colors.green),
+                            SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                'Processing Complete',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                      // Stats section
+                      Card(
+                        child: Padding(
+                          padding: EdgeInsets.all(12.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Session Statistics',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Total Windows: ${responseData['total_windows_processed']}',
+                                style: Theme.of(context).textTheme.bodyLarge,
+                              ),
+                              Text(
+                                'Basal Rate: ${basalRate.toStringAsFixed(2)} W',
+                                style: Theme.of(context).textTheme.bodyLarge,
+                              ),
+                              Text(
+                                'Gait Cycles: $gaitCycles',
+                                style: Theme.of(context).textTheme.bodyLarge,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        'Energy Expenditure Results',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      SizedBox(height: 8),
+                      // Results list
+                      Flexible(
+                        child: Scrollbar(
+                          thickness: 8,
+                          radius: Radius.circular(4),
+                          thumbVisibility: true,
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: responseData['results'].length,
+                            itemBuilder: (context, index) {
+                              final result = responseData['results'][index];
+                              final timestamp =
+                                  DateTime.parse(result['timestamp']);
+                              final isGaitCycle =
+                                  (result['energyExpenditure'] as num) >
+                                      basalRate;
+                              final ee = result['energyExpenditure'] as num;
+
+                              return EnergyExpenditureCard(
+                                timestamp: timestamp,
+                                energyExpenditure: ee.toDouble(),
+                                isGaitCycle: isGaitCycle,
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      // Close button
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16.0),
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: Text('Close'),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text('Close'),
-                ),
-              ],
             ),
           );
         }
