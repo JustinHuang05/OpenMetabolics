@@ -13,7 +13,7 @@ class PastSessionsPage extends StatefulWidget {
 }
 
 class _PastSessionsPageState extends State<PastSessionsPage> {
-  List<Session> _sessions = [];
+  List<SessionSummary> _sessions = [];
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -33,7 +33,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
       }
 
       final response = await http.post(
-        Uri.parse(ApiConfig.getPastSessions),
+        Uri.parse(ApiConfig.getPastSessionsSummary),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'user_email': userEmail,
@@ -44,7 +44,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         final data = jsonDecode(response.body);
         setState(() {
           _sessions = (data['sessions'] as List)
-              .map((session) => Session.fromJson(session))
+              .map((session) => SessionSummary.fromJson(session))
               .toList();
           _isLoading = false;
         });
@@ -147,7 +147,8 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                                       MaterialPageRoute(
                                         builder: (context) =>
                                             SessionDetailsPage(
-                                          session: session,
+                                          sessionId: session.sessionId,
+                                          timestamp: session.timestamp,
                                         ),
                                       ),
                                     );
@@ -172,7 +173,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                                               ),
                                               SizedBox(height: 4),
                                               Text(
-                                                '${session.results.length} measurements',
+                                                '${session.measurementCount} measurements',
                                                 style: Theme.of(context)
                                                     .textTheme
                                                     .bodyMedium

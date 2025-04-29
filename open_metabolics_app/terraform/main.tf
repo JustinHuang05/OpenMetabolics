@@ -545,6 +545,118 @@ resource "aws_lambda_permission" "get_past_sessions_api_gw" {
   source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
 }
 
+# Archive Lambda function code for session summaries
+data "archive_file" "get_past_sessions_summary_zip" {
+  type        = "zip"
+  source_file = "${path.module}/lambda/get_past_sessions_summary.js"
+  output_path = "${path.module}/lambda/get_past_sessions_summary_function.zip"
+}
+
+# Lambda Function for getting past session summaries
+resource "aws_lambda_function" "get_past_sessions_summary_handler" {
+  filename         = data.archive_file.get_past_sessions_summary_zip.output_path
+  function_name    = "${var.project_name}-get-past-sessions-summary"
+  role            = aws_iam_role.lambda_role.arn
+  handler         = "get_past_sessions_summary.handler"
+  runtime         = "nodejs18.x"
+  timeout         = 30
+  memory_size     = 256
+  source_code_hash = data.archive_file.get_past_sessions_summary_zip.output_base64sha256
+
+  environment {
+    variables = {
+      RESULTS_TABLE = aws_dynamodb_table.energy_expenditure_results.name
+    }
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# API Gateway Integration for session summaries
+resource "aws_apigatewayv2_integration" "get_past_sessions_summary_integration" {
+  api_id           = aws_apigatewayv2_api.lambda_api.id
+  integration_type = "AWS_PROXY"
+
+  connection_type           = "INTERNET"
+  description              = "Get past sessions summary Lambda integration"
+  integration_method       = "POST"
+  integration_uri          = aws_lambda_function.get_past_sessions_summary_handler.invoke_arn
+  payload_format_version   = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "get_past_sessions_summary_route" {
+  api_id    = aws_apigatewayv2_api.lambda_api.id
+  route_key = "POST /get-past-sessions-summary"
+  target    = "integrations/${aws_apigatewayv2_integration.get_past_sessions_summary_integration.id}"
+}
+
+resource "aws_lambda_permission" "get_past_sessions_summary_api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.get_past_sessions_summary_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
+}
+
+# Archive Lambda function code for session details
+data "archive_file" "get_session_details_zip" {
+  type        = "zip"
+  source_file = "${path.module}/lambda/get_session_details.js"
+  output_path = "${path.module}/lambda/get_session_details_function.zip"
+}
+
+# Lambda Function for getting session details
+resource "aws_lambda_function" "get_session_details_handler" {
+  filename         = data.archive_file.get_session_details_zip.output_path
+  function_name    = "${var.project_name}-get-session-details"
+  role            = aws_iam_role.lambda_role.arn
+  handler         = "get_session_details.handler"
+  runtime         = "nodejs18.x"
+  timeout         = 30
+  memory_size     = 256
+  source_code_hash = data.archive_file.get_session_details_zip.output_base64sha256
+
+  environment {
+    variables = {
+      RESULTS_TABLE = aws_dynamodb_table.energy_expenditure_results.name
+    }
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# API Gateway Integration for session details
+resource "aws_apigatewayv2_integration" "get_session_details_integration" {
+  api_id           = aws_apigatewayv2_api.lambda_api.id
+  integration_type = "AWS_PROXY"
+
+  connection_type           = "INTERNET"
+  description              = "Get session details Lambda integration"
+  integration_method       = "POST"
+  integration_uri          = aws_lambda_function.get_session_details_handler.invoke_arn
+  payload_format_version   = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "get_session_details_route" {
+  api_id    = aws_apigatewayv2_api.lambda_api.id
+  route_key = "POST /get-session-details"
+  target    = "integrations/${aws_apigatewayv2_integration.get_session_details_integration.id}"
+}
+
+resource "aws_lambda_permission" "get_session_details_api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.get_session_details_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
+}
+
 # ECR Repository for Fargate service
 resource "aws_ecr_repository" "energy_expenditure_service" {
   name = "${var.project_name}-energy-expenditure-service"

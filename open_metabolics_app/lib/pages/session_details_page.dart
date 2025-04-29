@@ -1,31 +1,157 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../models/session.dart';
 import '../widgets/energy_expenditure_card.dart';
+import '../config/api_config.dart';
+import '../auth/auth_service.dart';
+import 'package:provider/provider.dart';
 
-class SessionDetailsPage extends StatelessWidget {
-  final Session session;
+class SessionDetailsPage extends StatefulWidget {
+  final String sessionId;
+  final String timestamp;
 
-  SessionDetailsPage({required this.session});
+  SessionDetailsPage({
+    required this.sessionId,
+    required this.timestamp,
+  });
+
+  @override
+  _SessionDetailsPageState createState() => _SessionDetailsPageState();
+}
+
+class _SessionDetailsPageState extends State<SessionDetailsPage> {
+  Session? _session;
+  String? _errorMessage;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchSessionDetails();
+  }
+
+  Future<void> _fetchSessionDetails() async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userEmail = await authService.getCurrentUserEmail();
+
+      if (userEmail == null) {
+        throw Exception('User not logged in');
+      }
+
+      final response = await http.post(
+        Uri.parse(ApiConfig.getSessionDetails),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'user_email': userEmail,
+          'session_id': widget.sessionId,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _session = Session.fromJson(data['session']);
+          _isLoading = false;
+        });
+      } else {
+        final errorData = jsonDecode(response.body);
+        throw Exception(
+            'Failed to fetch session details: ${errorData['error']}${errorData['details'] != null ? '\nDetails: ${errorData['details']}' : ''}');
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+      });
+      print('Error fetching session details: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
     final Color textGray = Color.fromRGBO(66, 66, 66, 1);
 
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text('Session Details', style: TextStyle(color: textGray)),
+          backgroundColor: lightPurple,
+        ),
+        body: Center(
+          child: CircularProgressIndicator(color: lightPurple),
+        ),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text('Session Details', style: TextStyle(color: textGray)),
+          backgroundColor: lightPurple,
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  color: Colors.red,
+                  size: 48,
+                ),
+                SizedBox(height: 16),
+                Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.red),
+                ),
+                SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _fetchSessionDetails,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: lightPurple,
+                    foregroundColor: textGray,
+                  ),
+                  child: Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_session == null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text('Session Details', style: TextStyle(color: textGray)),
+          backgroundColor: lightPurple,
+        ),
+        body: Center(
+          child: Text('No session data available'),
+        ),
+      );
+    }
+
     // Use the actual basal metabolic rate from the session, or calculate it if not available
-    final basalRate = session.basalMetabolicRate ??
-        session.results
+    final basalRate = _session!.basalMetabolicRate ??
+        _session!.results
             .map((r) => r.energyExpenditure)
             .reduce((a, b) => a < b ? a : b);
 
     // Count gait cycles (EE values above basal rate)
-    final gaitCycles = session.results
+    final gaitCycles = _session!.results
         .where((result) => result.energyExpenditure > basalRate)
         .length;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Session Details'),
+        title: Text('Session Details', style: TextStyle(color: textGray)),
+        backgroundColor: lightPurple,
       ),
       body: Padding(
         padding: EdgeInsets.all(16.0),
@@ -43,9 +169,7 @@ class SessionDetailsPage extends StatelessWidget {
                   SizedBox(width: 8),
                   Flexible(
                     child: Text(
-                      DateTime.parse(session.timestamp)
-                          .toString()
-                          .split('.')[0],
+                      DateTime.parse(widget.timestamp).toString().split('.')[0],
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -65,11 +189,11 @@ class SessionDetailsPage extends StatelessWidget {
                     ),
                     SizedBox(height: 8),
                     Text(
-                      'Total Windows: ${session.results.length}',
+                      'Total Windows: ${_session!.results.length}',
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
                     Text(
-                      'Basal Rate: ${basalRate.toStringAsFixed(2)} W${session.basalMetabolicRate == null ? ' (estimated)' : ''}',
+                      'Basal Rate: ${basalRate.toStringAsFixed(2)} W${_session!.basalMetabolicRate == null ? ' (estimated)' : ''}',
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
                     Text(
@@ -93,9 +217,9 @@ class SessionDetailsPage extends StatelessWidget {
                 radius: Radius.circular(4),
                 thumbVisibility: true,
                 child: ListView.builder(
-                  itemCount: session.results.length,
+                  itemCount: _session!.results.length,
                   itemBuilder: (context, index) {
-                    final result = session.results[index];
+                    final result = _session!.results[index];
                     final timestamp = DateTime.parse(result.timestamp);
                     final isGaitCycle = result.energyExpenditure > basalRate;
 

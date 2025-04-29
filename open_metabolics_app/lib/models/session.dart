@@ -45,3 +45,23 @@ class SessionResult {
     );
   }
 }
+
+class SessionSummary {
+  final String sessionId;
+  final String timestamp;
+  final int measurementCount;
+
+  SessionSummary({
+    required this.sessionId,
+    required this.timestamp,
+    required this.measurementCount,
+  });
+
+  factory SessionSummary.fromJson(Map<String, dynamic> json) {
+    return SessionSummary(
+      sessionId: json['sessionId'],
+      timestamp: json['timestamp'],
+      measurementCount: json['measurementCount'],
+    );
+  }
+}

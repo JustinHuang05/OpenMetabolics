@@ -17,6 +17,10 @@ class ApiConfig {
   static String get energyExpenditureServiceUrl =>
       dotenv.env['FARGATE_SERVICE_URL'] ?? '';
 
-  // New endpoint for getting past sessions
-  static String get getPastSessions => '$baseUrl/get-past-sessions';
+  // Session Endpoints
+  static String get getPastSessionsSummary =>
+      '$baseUrl/get-past-sessions-summary';
+  static String get getSessionDetails => '$baseUrl/get-session-details';
+  static String get getPastSessions =>
+      '$baseUrl/get-past-sessions'; // Legacy endpoint
 }
