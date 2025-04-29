@@ -64,14 +64,16 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
     final Color textGray = Color.fromRGBO(66, 66, 66, 1);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Past Sessions'),
+        title: Text('Past Sessions', style: TextStyle(color: textGray)),
+        backgroundColor: lightPurple,
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator())
+          ? Center(child: CircularProgressIndicator(color: lightPurple))
           : _errorMessage != null
               ? Center(
                   child: Padding(
@@ -93,6 +95,10 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                         SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: _fetchPastSessions,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: lightPurple,
+                            foregroundColor: textGray,
+                          ),
                           child: Text('Retry'),
                         ),
                       ],
@@ -107,7 +113,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                           Icon(
                             Icons.history,
                             size: 48,
-                            color: Colors.grey,
+                            color: lightPurple,
                           ),
                           SizedBox(height: 16),
                           Text(
@@ -121,6 +127,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                       ),
                     )
                   : RefreshIndicator(
+                      color: lightPurple,
                       onRefresh: _fetchPastSessions,
                       child: Padding(
                         padding: const EdgeInsets.all(16.0),

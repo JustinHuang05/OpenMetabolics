@@ -115,11 +115,13 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
+    final Color textGray = Color.fromRGBO(66, 66, 66, 1);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('User Profile'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        title: Text('User Profile', style: TextStyle(color: textGray)),
+        backgroundColor: lightPurple,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -222,19 +224,22 @@ class _UserProfilePageState extends State<UserProfilePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Gender',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
+                          color: textGray,
                         ),
                       ),
                       const SizedBox(height: 10),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          _buildGenderOption('Male', 'male'),
-                          _buildGenderOption('Female', 'female'),
+                          _buildGenderOption(
+                              'Male', 'male', lightPurple, textGray),
+                          _buildGenderOption(
+                              'Female', 'female', lightPurple, textGray),
                         ],
                       ),
                     ],
@@ -262,13 +267,15 @@ class _UserProfilePageState extends State<UserProfilePage> {
                 onPressed: _isLoading ? null : _saveProfile,
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: lightPurple,
+                  foregroundColor: textGray,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
                 child: _isLoading
-                    ? const CircularProgressIndicator()
-                    : const Text(
+                    ? CircularProgressIndicator(color: textGray)
+                    : Text(
                         'Save Profile',
                         style: TextStyle(fontSize: 16),
                       ),
@@ -280,7 +287,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
     );
   }
 
-  Widget _buildGenderOption(String label, String value) {
+  Widget _buildGenderOption(
+      String label, String value, Color lightPurple, Color textGray) {
     return GestureDetector(
       onTap: () {
         setState(() {
@@ -290,15 +298,13 @@ class _UserProfilePageState extends State<UserProfilePage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: _selectedGender == value
-              ? Theme.of(context).colorScheme.primary
-              : Colors.grey[200],
+          color: _selectedGender == value ? lightPurple : Colors.grey[200],
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: _selectedGender == value ? Colors.white : Colors.black87,
+            color: _selectedGender == value ? textGray : Colors.black87,
             fontWeight: FontWeight.w500,
           ),
         ),
