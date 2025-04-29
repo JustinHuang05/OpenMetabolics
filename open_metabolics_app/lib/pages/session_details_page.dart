@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../models/session.dart';
 import '../widgets/energy_expenditure_card.dart';
+import '../widgets/energy_expenditure_chart.dart';
 import '../config/api_config.dart';
 import '../auth/auth_service.dart';
 import 'package:provider/provider.dart';
@@ -24,6 +25,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   Session? _session;
   String? _errorMessage;
   bool _isLoading = true;
+  bool _isChartVisible = false;
 
   @override
   void initState() {
@@ -179,37 +181,81 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             // Stats section
             Card(
               child: Padding(
-                padding: EdgeInsets.all(12.0),
+                padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       'Session Statistics',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    SizedBox(height: 8),
+                    SizedBox(height: 4),
                     Text(
                       'Total Windows: ${_session!.results.length}',
-                      style: Theme.of(context).textTheme.bodyLarge,
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
+                    SizedBox(height: 2),
                     Text(
                       'Basal Rate: ${basalRate.toStringAsFixed(2)} W${_session!.basalMetabolicRate == null ? ' (estimated)' : ''}',
-                      style: Theme.of(context).textTheme.bodyLarge,
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
+                    SizedBox(height: 2),
                     Text(
                       'Gait Cycles: $gaitCycles',
-                      style: Theme.of(context).textTheme.bodyLarge,
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ],
                 ),
               ),
             ),
             SizedBox(height: 16),
-            Text(
-              'Energy Expenditure Results',
-              style: Theme.of(context).textTheme.titleMedium,
+            // Replace this section
+            Padding(
+              padding: EdgeInsets.only(right: 4.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Energy Expenditure Results',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  Container(
+                    height: 40,
+                    width: 40,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: lightPurple,
+                        width: 2,
+                      ),
+                      color: _isChartVisible ? lightPurple : Colors.transparent,
+                    ),
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      iconSize: 20,
+                      icon: Icon(
+                        Icons.bar_chart,
+                        color: _isChartVisible ? Colors.white : lightPurple,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _isChartVisible = !_isChartVisible;
+                        });
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
             SizedBox(height: 8),
+            if (_isChartVisible) ...[
+              EnergyExpenditureChart(
+                results: _session!.results,
+                basalRate: basalRate,
+              ),
+              SizedBox(height: 8),
+            ],
             // Results list
             Expanded(
               child: Scrollbar(
