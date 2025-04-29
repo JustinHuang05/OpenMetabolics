@@ -13,8 +13,8 @@ A4["Session Details Page"]
 end
 
     %% AWS Cloud
-    subgraph AWS_Cloud
-        subgraph API_Gateway
+    subgraph AWS Cloud
+        subgraph API Gateway
             B1(["Lambda: Save Raw Sensor Data"])
             B2(["Lambda: Manage User Profile"])
             B3(["Lambda: Get User Profile"])
