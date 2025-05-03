@@ -75,136 +75,123 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     final Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
     final Color textGray = Color.fromRGBO(66, 66, 66, 1);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Past Sessions', style: TextStyle(color: textGray)),
-        backgroundColor: lightPurple,
-      ),
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator(color: lightPurple))
-          : _errorMessage != null
-              ? Center(
+    if (_isLoading) {
+      return Center(child: CircularProgressIndicator(color: lightPurple));
+    } else if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                color: Colors.red,
+                size: 48,
+              ),
+              SizedBox(height: 16),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.red),
+              ),
+              SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _fetchPastSessions,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: lightPurple,
+                  foregroundColor: textGray,
+                ),
+                child: Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else if (_sessions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.history,
+              size: 48,
+              color: lightPurple,
+            ),
+            SizedBox(height: 16),
+            Text(
+              'No past sessions found',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      return RefreshIndicator(
+        color: lightPurple,
+        onRefresh: _fetchPastSessions,
+        child: ListView.builder(
+          padding: const EdgeInsets.all(16.0),
+          itemCount: _sessions.length,
+          itemBuilder: (context, index) {
+            final session = _sessions[index];
+            final date = DateTime.parse(session.timestamp);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: Card(
+                elevation: 2,
+                child: InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SessionDetailsPage(
+                          sessionId: session.sessionId,
+                          timestamp: session.timestamp,
+                        ),
+                      ),
+                    );
+                  },
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    child: Row(
                       children: [
-                        Icon(
-                          Icons.error_outline,
-                          color: Colors.red,
-                          size: 48,
-                        ),
-                        SizedBox(height: 16),
-                        Text(
-                          _errorMessage!,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.red),
-                        ),
-                        SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _fetchPastSessions,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: lightPurple,
-                            foregroundColor: textGray,
+                        Icon(Icons.calendar_today, color: textGray, size: 24),
+                        SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _formatTimestamp(session.timestamp),
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                '${session.measurementCount} measurements',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                      color: Colors.grey[600],
+                                    ),
+                              ),
+                            ],
                           ),
-                          child: Text('Retry'),
                         ),
+                        Icon(Icons.chevron_right, color: Colors.grey[400]),
                       ],
                     ),
                   ),
-                )
-              : _sessions.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.history,
-                            size: 48,
-                            color: lightPurple,
-                          ),
-                          SizedBox(height: 16),
-                          Text(
-                            'No past sessions found',
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : RefreshIndicator(
-                      color: lightPurple,
-                      onRefresh: _fetchPastSessions,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: ListView.builder(
-                          itemCount: _sessions.length,
-                          itemBuilder: (context, index) {
-                            final session = _sessions[index];
-                            final date = DateTime.parse(session.timestamp);
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 8.0),
-                              child: Card(
-                                elevation: 2,
-                                child: InkWell(
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) =>
-                                            SessionDetailsPage(
-                                          sessionId: session.sessionId,
-                                          timestamp: session.timestamp,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16.0),
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.calendar_today,
-                                            color: textGray, size: 24),
-                                        SizedBox(width: 16),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                _formatTimestamp(
-                                                    session.timestamp),
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .titleMedium,
-                                              ),
-                                              SizedBox(height: 4),
-                                              Text(
-                                                '${session.measurementCount} measurements',
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .bodyMedium
-                                                    ?.copyWith(
-                                                      color: Colors.grey[600],
-                                                    ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        Icon(Icons.chevron_right,
-                                            color: Colors.grey[400]),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-    );
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    }
   }
 }

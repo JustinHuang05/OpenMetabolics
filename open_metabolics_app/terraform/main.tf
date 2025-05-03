@@ -339,17 +339,19 @@ resource "aws_cognito_user_pool" "user_pool" {
   # Enable email verification
   auto_verified_attributes = ["email"]
   
-  verification_message_template {
-    email_subject = "Your OpenMetabolics Verification Code"
-    email_message = "Thank you for signing up! Your verification code is {####}"
-    default_email_option = "CONFIRM_WITH_CODE"
-  }
-
-  # Make sure email sending is enabled
+  # Email configuration
   email_configuration {
     email_sending_account = "DEVELOPER"
     from_email_address    = "justinhuang@seas.harvard.edu"
     source_arn           = aws_ses_email_identity.sender.arn
+    configuration_set    = "cognito-emails"  # Optional: Create this in SES console for tracking
+  }
+
+  # Add better error messages for email verification
+  verification_message_template {
+    email_subject = "Welcome to OpenMetabolics - Verify Your Email"
+    email_message = "Thank you for signing up for OpenMetabolics! Your verification code is {####}. If you didn't create this account, please ignore this email."
+    default_email_option = "CONFIRM_WITH_CODE"
   }
 
   # Update the client to allow user signup

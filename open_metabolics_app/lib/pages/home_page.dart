@@ -18,6 +18,7 @@ import '../providers/user_profile_provider.dart';
 import '../config/api_config.dart';
 import 'past_sessions_page.dart';
 import '../widgets/energy_expenditure_card.dart';
+import 'feedback_form_page.dart';
 
 class SensorScreen extends StatefulWidget {
   @override
@@ -49,6 +50,15 @@ class _SensorScreenState extends State<SensorScreen> {
   UserProfile? _userProfile;
   bool _isLoading = true;
   String? _errorMessage;
+
+  int _selectedIndex = 0;
+
+  static const List<String> _titles = [
+    'Open Metabolics',
+    'User Profile',
+    'Past Sessions',
+    'User Survey',
+  ];
 
   @override
   void initState() {
@@ -619,75 +629,313 @@ class _SensorScreenState extends State<SensorScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
-    Color textGray = Color.fromRGBO(66, 66, 66, 1);
-
-    final profileProvider = context.watch<UserProfileProvider>();
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'OpenMetabolics',
-          style: TextStyle(color: textGray),
-        ),
-        backgroundColor: lightPurple,
-        actions: [
-          IconButton(
-            icon: Icon(
-              Icons.history,
-              color: textGray,
-            ),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => PastSessionsPage(),
-                ),
-              );
-            },
+  Widget _buildHomeTab(BuildContext context, Color lightPurple, Color textGray,
+      UserProfileProvider profileProvider) {
+    List<Widget> content = [];
+    if (_isTracking) {
+      content.add(
+        Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
           ),
-          IconButton(
-            icon: Icon(
-              Icons.person,
-              color: textGray,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.sensors, color: lightPurple),
+                    SizedBox(width: 8),
+                    Text(
+                      'Live Sensor Data',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: textGray,
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.blue.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.speed, color: Colors.blue, size: 20),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Accelerometer',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              _accelerometerData.split(': ')[1],
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontFamily: 'monospace',
+                                color: Colors.blue.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.green.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.rotate_right,
+                                    color: Colors.green, size: 20),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Gyroscope',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.green,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              _gyroscopeData.split(': ')[1],
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontFamily: 'monospace',
+                                color: Colors.green.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_isAboveThreshold) ...[
+                  SizedBox(height: 16),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text(
+                          'Movement threshold exceeded',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
             ),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => UserProfilePage(
-                    userProfile: profileProvider.userProfile,
-                    onProfileUpdated: (profile) {
-                      profileProvider.updateProfile(profile);
-                    },
+          ),
+        ),
+      );
+      content.add(SizedBox(height: 16));
+    }
+    if (_csvData.isNotEmpty) {
+      content.add(Text(
+        'Captured Data',
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: textGray,
+        ),
+      ));
+      content.add(SizedBox(height: 8));
+      content.add(
+        Card(
+          elevation: 2,
+          color: Colors.grey.shade100,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: ListView.separated(
+            padding: EdgeInsets.all(16),
+            shrinkWrap: true,
+            physics: NeverScrollableScrollPhysics(),
+            itemCount: _csvData.length,
+            separatorBuilder: (context, index) => Divider(
+              height: 1,
+              color: Colors.grey.shade300,
+            ),
+            itemBuilder: (context, index) {
+              final row = _csvData[index];
+              return Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  row.join(', '),
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    color: index == 0
+                        ? Colors.grey.shade800
+                        : Colors.grey.shade600,
+                    fontWeight:
+                        index == 0 ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
               );
             },
           ),
-          IconButton(
-            icon: Icon(
-              Icons.logout,
-              color: textGray,
+        ),
+      );
+    } else if (!_isTracking) {
+      content.add(
+        SizedBox(
+          height: MediaQuery.of(context).size.height * 0.25,
+        ),
+      );
+      content.add(
+        Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.sensors_off,
+                size: 64,
+                color: Colors.grey.shade400,
+              ),
+              SizedBox(height: 16),
+              Text(
+                'No Sensor Data',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Press the Start button to begin recording',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.all(16.0),
+      children: content,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
+    Color textGray = Color.fromRGBO(66, 66, 66, 1);
+    final profileProvider = context.watch<UserProfileProvider>();
+
+    Future<void> _showLogoutDialog() async {
+      final shouldLogout = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Log out'),
+          content: Text('Are you sure you want to log out?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text('Cancel'),
             ),
-            onPressed: () async {
-              final authService =
-                  Provider.of<AuthService>(context, listen: false);
-              try {
-                await authService.signOut();
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => LoginPage()),
-                  (Route<dynamic> route) => false,
-                );
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                      content: Text('Error signing out. Please try again.')),
-                );
-              }
-            },
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text('Log out', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        ),
+      );
+      if (shouldLogout == true) {
+        final authService = Provider.of<AuthService>(context, listen: false);
+        try {
+          await authService.signOut();
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => LoginPage()),
+            (Route<dynamic> route) => false,
+          );
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error signing out. Please try again.')),
+          );
+        }
+      }
+    }
+
+    final List<Widget> _pages = [
+      _buildHomeTab(context, lightPurple, textGray, profileProvider),
+      UserProfilePage(
+        userProfile: profileProvider.userProfile,
+        onProfileUpdated: (profile) {
+          profileProvider.updateProfile(profile);
+        },
+      ),
+      PastSessionsPage(),
+      FeedbackFormPage(),
+    ];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          _titles[_selectedIndex],
+          style: TextStyle(color: textGray),
+        ),
+        backgroundColor: lightPurple,
+        iconTheme: IconThemeData(color: textGray),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.logout, color: textGray),
+            tooltip: 'Log out',
+            onPressed: _showLogoutDialog,
           ),
         ],
       ),
@@ -695,276 +943,68 @@ class _SensorScreenState extends State<SensorScreen> {
           ? const Center(child: CircularProgressIndicator())
           : profileProvider.errorMessage != null
               ? Center(child: Text(profileProvider.errorMessage!))
-              : Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      if (_isTracking) ...[
-                        Card(
-                          elevation: 4,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(Icons.sensors, color: lightPurple),
-                                    SizedBox(width: 8),
-                                    Text(
-                                      'Live Sensor Data',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: textGray,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                SizedBox(height: 16),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Container(
-                                        padding: EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: Colors.blue.withOpacity(0.1),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                          border: Border.all(
-                                            color: Colors.blue.withOpacity(0.3),
-                                          ),
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Icon(Icons.speed,
-                                                    color: Colors.blue,
-                                                    size: 20),
-                                                SizedBox(width: 8),
-                                                Text(
-                                                  'Accelerometer',
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    fontWeight: FontWeight.w500,
-                                                    color: Colors.blue,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            SizedBox(height: 8),
-                                            Text(
-                                              _accelerometerData.split(': ')[1],
-                                              style: TextStyle(
-                                                fontSize: 16,
-                                                fontFamily: 'monospace',
-                                                color: Colors.blue.shade900,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Container(
-                                        padding: EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green.withOpacity(0.1),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                          border: Border.all(
-                                            color:
-                                                Colors.green.withOpacity(0.3),
-                                          ),
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Icon(Icons.rotate_right,
-                                                    color: Colors.green,
-                                                    size: 20),
-                                                SizedBox(width: 8),
-                                                Text(
-                                                  'Gyroscope',
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    fontWeight: FontWeight.w500,
-                                                    color: Colors.green,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            SizedBox(height: 8),
-                                            Text(
-                                              _gyroscopeData.split(': ')[1],
-                                              style: TextStyle(
-                                                fontSize: 16,
-                                                fontFamily: 'monospace',
-                                                color: Colors.green.shade900,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                if (_isAboveThreshold) ...[
-                                  SizedBox(height: 16),
-                                  Container(
-                                    padding: EdgeInsets.symmetric(
-                                        horizontal: 12, vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.red.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                          color: Colors.red.withOpacity(0.3)),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.warning_amber_rounded,
-                                            color: Colors.red),
-                                        SizedBox(width: 8),
-                                        Text(
-                                          'Movement threshold exceeded',
-                                          style: TextStyle(
-                                            color: Colors.red,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                        SizedBox(height: 16),
-                      ],
-                      if (_csvData.isNotEmpty) ...[
-                        Text(
-                          'Captured Data',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: textGray,
-                          ),
-                        ),
-                        SizedBox(height: 8),
-                        Expanded(
-                          child: Card(
-                            elevation: 2,
-                            color: Colors.grey.shade100,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: ListView.separated(
-                              padding: EdgeInsets.all(16),
-                              itemCount: _csvData.length,
-                              separatorBuilder: (context, index) => Divider(
-                                height: 1,
-                                color: Colors.grey.shade300,
-                              ),
-                              itemBuilder: (context, index) {
-                                final row = _csvData[index];
-                                return Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 8),
-                                  child: Text(
-                                    row.join(', '),
-                                    style: TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontSize: 12,
-                                      color: index == 0
-                                          ? Colors.grey.shade800
-                                          : Colors.grey.shade600,
-                                      fontWeight: index == 0
-                                          ? FontWeight.bold
-                                          : FontWeight.normal,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      ] else if (!_isTracking) ...[
-                        Expanded(
-                          child: Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.sensors_off,
-                                  size: 64,
-                                  color: Colors.grey.shade400,
-                                ),
-                                SizedBox(height: 16),
-                                Text(
-                                  'No Sensor Data',
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                                SizedBox(height: 8),
-                                Text(
-                                  'Press the Start button to begin recording',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    color: Colors.grey.shade500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+              : _selectedIndex == 0
+                  ? _buildHomeTab(
+                      context, lightPurple, textGray, profileProvider)
+                  : _pages[_selectedIndex],
+      floatingActionButton: _selectedIndex == 0
+          ? Container(
+              height: 95,
+              width: 95,
+              child: FittedBox(
+                child: FloatingActionButton.extended(
+                  foregroundColor: lightPurple,
+                  backgroundColor: lightPurple,
+                  onPressed: () {
+                    setState(() {
+                      if (_isTracking) {
+                        _stopTracking();
+                        _isAboveThreshold = false;
+                      } else {
+                        _startTracking();
+                      }
+                    });
+                  },
+                  label: Text(
+                    _isTracking ? 'Stop' : 'Start',
+                    style: TextStyle(color: textGray),
                   ),
+                  shape: CircleBorder(),
                 ),
-      floatingActionButton: Container(
-        height: 95,
-        width: 95,
-        child: FittedBox(
-          child: FloatingActionButton.extended(
-            foregroundColor: lightPurple,
-            backgroundColor: lightPurple,
-            onPressed: () {
-              setState(() {
-                if (_isTracking) {
-                  _stopTracking();
-                  _isAboveThreshold = false;
-                } else {
-                  _startTracking();
-                }
-              });
-            },
-            label: Text(
-              _isTracking ? 'Stop' : 'Start',
-              style: TextStyle(color: textGray),
-            ),
-            shape: CircleBorder(),
-          ),
-        ),
-      ),
+              ),
+            )
+          : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        selectedItemColor: Colors.deepPurple,
+        unselectedItemColor: Colors.grey,
+        showUnselectedLabels: true,
+        type: BottomNavigationBarType.fixed,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.history),
+            label: 'History',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.question_answer),
+            label: 'Survey',
+          ),
+        ],
+      ),
     );
   }
 }

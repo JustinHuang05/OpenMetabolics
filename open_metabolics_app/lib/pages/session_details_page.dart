@@ -163,31 +163,30 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         title: Text('Session Details', style: TextStyle(color: textGray)),
         backgroundColor: lightPurple,
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Title section with icon
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16.0),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.calendar_today, color: textGray),
-                  SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      _formatTimestamp(widget.timestamp),
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Title section with icon
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.calendar_today, color: textGray),
+                SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    _formatTimestamp(widget.timestamp),
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            // Stats section
-            Card(
+          ),
+          // Stats section
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 0),
+            child: Card(
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                 child: Column(
@@ -217,77 +216,84 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 ),
               ),
             ),
-            SizedBox(height: 16),
-            // Replace this section
-            Padding(
-              padding: EdgeInsets.only(right: 4.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Energy Expenditure Results',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  Container(
-                    height: 40,
-                    width: 40,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: lightPurple,
-                        width: 2,
-                      ),
-                      color: _isChartVisible ? lightPurple : Colors.transparent,
+          ),
+          SizedBox(height: 16),
+          // Chart toggle and title
+          Padding(
+            padding: EdgeInsets.only(left: 16.0, right: 20.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Energy Expenditure Results',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                Container(
+                  height: 40,
+                  width: 40,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: lightPurple,
+                      width: 2,
                     ),
-                    child: IconButton(
-                      padding: EdgeInsets.zero,
-                      iconSize: 20,
-                      icon: Icon(
-                        Icons.bar_chart,
-                        color: _isChartVisible ? Colors.white : lightPurple,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _isChartVisible = !_isChartVisible;
-                        });
-                      },
-                    ),
+                    color: _isChartVisible ? lightPurple : Colors.transparent,
                   ),
-                ],
-              ),
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    iconSize: 20,
+                    icon: Icon(
+                      Icons.bar_chart,
+                      color: _isChartVisible ? Colors.white : lightPurple,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _isChartVisible = !_isChartVisible;
+                      });
+                    },
+                  ),
+                ),
+              ],
             ),
-            SizedBox(height: 8),
-            if (_isChartVisible) ...[
-              EnergyExpenditureChart(
+          ),
+          SizedBox(height: 8),
+          if (_isChartVisible) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: EnergyExpenditureChart(
                 results: _session!.results,
                 basalRate: basalRate,
               ),
-              SizedBox(height: 8),
-            ],
-            // Results list
-            Expanded(
-              child: Scrollbar(
-                thickness: 8,
-                radius: Radius.circular(4),
-                thumbVisibility: true,
-                child: ListView.builder(
-                  itemCount: _session!.results.length,
-                  itemBuilder: (context, index) {
-                    final result = _session!.results[index];
-                    final timestamp = DateTime.parse(result.timestamp);
-                    final isGaitCycle = result.energyExpenditure > basalRate;
+            ),
+            SizedBox(height: 8),
+          ],
+          // Results list
+          Expanded(
+            child: Scrollbar(
+              thickness: 8,
+              radius: Radius.circular(4),
+              thumbVisibility: true,
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                itemCount: _session!.results.length,
+                itemBuilder: (context, index) {
+                  final result = _session!.results[index];
+                  final timestamp = DateTime.parse(result.timestamp);
+                  final isGaitCycle = result.energyExpenditure > basalRate;
 
-                    return EnergyExpenditureCard(
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    child: EnergyExpenditureCard(
                       timestamp: timestamp,
                       energyExpenditure: result.energyExpenditure,
                       isGaitCycle: isGaitCycle,
-                    );
-                  },
-                ),
+                    ),
+                  );
+                },
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
