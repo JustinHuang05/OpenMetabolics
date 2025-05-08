@@ -8,6 +8,7 @@ import '../widgets/energy_expenditure_chart.dart';
 import '../config/api_config.dart';
 import '../auth/auth_service.dart';
 import 'package:provider/provider.dart';
+import '../widgets/feedback_bottom_drawer.dart';
 
 class SessionDetailsPage extends StatefulWidget {
   final String sessionId;
@@ -27,6 +28,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   String? _errorMessage;
   bool _isLoading = true;
   bool _isChartVisible = false;
+  bool _hasSurveyResponse = false;
+  bool _isSurveyButtonLoading = false;
+  Map<String, dynamic>? _surveyResponse;
   final DateFormat _dateFormat = DateFormat('MMMM d, y');
   final DateFormat _timeFormat = DateFormat('HH:mm:ss');
 
@@ -34,6 +38,46 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   void initState() {
     super.initState();
     _fetchSessionDetails();
+  }
+
+  Future<void> _checkSurveyResponse() async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userEmail = await authService.getCurrentUserEmail();
+
+      if (userEmail == null) {
+        throw Exception('User not logged in');
+      }
+
+      final response = await http.post(
+        Uri.parse(ApiConfig.getSurveyResponse),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'user_email': userEmail,
+          'session_id': widget.sessionId,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        print('Survey response data: $data');
+        setState(() {
+          _hasSurveyResponse = data['hasResponse'] ?? false;
+          if (data['hasResponse'] && data['response'] != null) {
+            _surveyResponse = Map<String, dynamic>.from(data['response']);
+            print('Set survey response: $_surveyResponse');
+          } else {
+            _surveyResponse = null;
+          }
+        });
+      } else {
+        final errorData = jsonDecode(response.body);
+        throw Exception(
+            'Failed to check survey response: ${errorData['error']}${errorData['details'] != null ? '\nDetails: ${errorData['details']}' : ''}');
+      }
+    } catch (e) {
+      print('Error checking survey response: $e');
+    }
   }
 
   Future<void> _fetchSessionDetails() async {
@@ -56,6 +100,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        // Check for survey response before updating the UI
+        await _checkSurveyResponse();
         setState(() {
           _session = Session.fromJson(data['session']);
           _isLoading = false;
@@ -71,6 +117,22 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         _isLoading = false;
       });
       print('Error fetching session details: $e');
+    }
+  }
+
+  Future<void> _reloadSessionDetails() async {
+    setState(() {
+      _isSurveyButtonLoading = true;
+    });
+
+    try {
+      await _fetchSessionDetails();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSurveyButtonLoading = false;
+        });
+      }
     }
   }
 
@@ -183,38 +245,130 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
               ],
             ),
           ),
-          // Stats section
+          // Stats section and Survey button in a row
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 0),
-            child: Card(
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Session Statistics',
-                      style: Theme.of(context).textTheme.titleMedium,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Stats Card
+                Expanded(
+                  child: Card(
+                    child: Padding(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Session Statistics',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Total Windows: ${_session!.results.length}',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Basal Rate: ${basalRate.toStringAsFixed(2)} W${_session!.basalMetabolicRate == null ? ' (estimated)' : ''}',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Gait Cycles: $gaitCycles',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
                     ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Total Windows: ${_session!.results.length}',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Basal Rate: ${basalRate.toStringAsFixed(2)} W${_session!.basalMetabolicRate == null ? ' (estimated)' : ''}',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Gait Cycles: $gaitCycles',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+                SizedBox(width: 12),
+                // Survey Button
+                Container(
+                  width: 160,
+                  child: ElevatedButton(
+                    onPressed: _isSurveyButtonLoading
+                        ? null
+                        : () {
+                            showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              enableDrag: true,
+                              isDismissible: true,
+                              builder: (context) => DraggableScrollableSheet(
+                                initialChildSize: 0.9,
+                                minChildSize: 0.5,
+                                maxChildSize: 0.95,
+                                expand: false,
+                                builder: (context, scrollController) {
+                                  return FeedbackBottomDrawer(
+                                    sessionId: widget.sessionId,
+                                    existingResponse: _surveyResponse,
+                                    onSurveySubmitted: () async {
+                                      await _reloadSessionDetails();
+                                    },
+                                  );
+                                },
+                              ),
+                            );
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                          _hasSurveyResponse ? lightPurple : Colors.red,
+                      foregroundColor:
+                          _hasSurveyResponse ? textGray : Colors.white,
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 2,
+                      disabledBackgroundColor: _hasSurveyResponse
+                          ? lightPurple.withOpacity(0.5)
+                          : Colors.red.withOpacity(0.5),
+                      disabledForegroundColor: _hasSurveyResponse
+                          ? textGray.withOpacity(0.5)
+                          : Colors.white.withOpacity(0.5),
+                    ),
+                    child: _isSurveyButtonLoading
+                        ? SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                _hasSurveyResponse ? textGray : Colors.white,
+                              ),
+                            ),
+                          )
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                _hasSurveyResponse
+                                    ? Icons.visibility
+                                    : Icons.assignment,
+                                size: 20,
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                _hasSurveyResponse
+                                    ? 'View/Edit Survey'
+                                    : 'Complete Survey',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                ),
+              ],
             ),
           ),
           SizedBox(height: 16),

@@ -105,6 +105,41 @@ resource "aws_dynamodb_table" "user_profiles" {
   }
 }
 
+# DynamoDB Table for user survey responses
+resource "aws_dynamodb_table" "user_survey_responses" {
+  name         = "user_survey_responses"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "SessionId"
+  range_key    = "Timestamp"
+
+  attribute {
+    name = "SessionId"
+    type = "S"
+  }
+  attribute {
+    name = "Timestamp"
+    type = "S"
+  }
+  attribute {
+    name = "UserEmail"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name               = "UserEmailIndex"
+    hash_key           = "UserEmail"
+    range_key          = "Timestamp"
+    projection_type    = "ALL"
+    write_capacity     = 5
+    read_capacity      = 5
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
 # Lambda IAM Role
 resource "aws_iam_role" "lambda_role" {
   name = "${var.project_name}-lambda-role"
@@ -136,14 +171,19 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Action = [
           "dynamodb:PutItem",
           "dynamodb:GetItem",
-          "dynamodb:Query"
+          "dynamodb:Query",
+          "dynamodb:BatchGetItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem"
         ]
         Resource = [
           aws_dynamodb_table.raw_sensor_data.arn,
           "${aws_dynamodb_table.raw_sensor_data.arn}/index/UserEmailIndex",
           aws_dynamodb_table.energy_expenditure_results.arn,
           "${aws_dynamodb_table.energy_expenditure_results.arn}/index/UserEmailIndex",
-          aws_dynamodb_table.user_profiles.arn
+          aws_dynamodb_table.user_profiles.arn,
+          aws_dynamodb_table.user_survey_responses.arn,
+          "${aws_dynamodb_table.user_survey_responses.arn}/index/*"
         ]
       },
       {
@@ -344,7 +384,6 @@ resource "aws_cognito_user_pool" "user_pool" {
     email_sending_account = "DEVELOPER"
     from_email_address    = "justinhuang@seas.harvard.edu"
     source_arn           = aws_ses_email_identity.sender.arn
-    configuration_set    = "cognito-emails"  # Optional: Create this in SES console for tracking
   }
 
   # Add better error messages for email verification
@@ -655,6 +694,171 @@ resource "aws_lambda_permission" "get_session_details_api_gw" {
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.get_session_details_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
+}
+
+# Archive Lambda function code for survey response
+data "archive_file" "save_survey_response_zip" {
+  type        = "zip"
+  source_file = "${path.module}/lambda/save_survey_response.js"
+  output_path = "${path.module}/lambda/save_survey_response_function.zip"
+}
+
+# Lambda Function for saving survey responses
+resource "aws_lambda_function" "save_survey_response_handler" {
+  filename         = data.archive_file.save_survey_response_zip.output_path
+  function_name    = "save-survey-response"
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "save_survey_response.handler"
+  runtime          = "nodejs18.x"
+  timeout          = 30
+  memory_size      = 256
+  source_code_hash = data.archive_file.save_survey_response_zip.output_base64sha256
+
+  environment {
+    variables = {
+      SURVEY_TABLE = aws_dynamodb_table.user_survey_responses.name
+    }
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# API Gateway integration for survey response
+resource "aws_apigatewayv2_integration" "save_survey_response_integration" {
+  api_id           = aws_apigatewayv2_api.lambda_api.id
+  integration_type = "AWS_PROXY"
+
+  connection_type    = "INTERNET"
+  description       = "Save survey response Lambda integration"
+  integration_method = "POST"
+  integration_uri    = aws_lambda_function.save_survey_response_handler.invoke_arn
+}
+
+resource "aws_apigatewayv2_route" "save_survey_response_route" {
+  api_id    = aws_apigatewayv2_api.lambda_api.id
+  route_key = "POST /save-survey-response"
+  target    = "integrations/${aws_apigatewayv2_integration.save_survey_response_integration.id}"
+}
+
+resource "aws_lambda_permission" "save_survey_response_api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.save_survey_response_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
+}
+
+# Archive Lambda function code for getting survey response
+data "archive_file" "get_survey_response_zip" {
+  type        = "zip"
+  source_file = "${path.module}/lambda/get_survey_response.js"
+  output_path = "${path.module}/lambda/get_survey_response_function.zip"
+}
+
+# Lambda Function for getting survey response
+resource "aws_lambda_function" "get_survey_response_handler" {
+  filename         = data.archive_file.get_survey_response_zip.output_path
+  function_name    = "get-survey-response"
+  role            = aws_iam_role.lambda_role.arn
+  handler         = "get_survey_response.handler"
+  runtime         = "nodejs18.x"
+  timeout         = 30
+  memory_size     = 256
+  source_code_hash = data.archive_file.get_survey_response_zip.output_base64sha256
+
+  environment {
+    variables = {
+      SURVEY_TABLE = aws_dynamodb_table.user_survey_responses.name
+    }
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# API Gateway integration for getting survey response
+resource "aws_apigatewayv2_integration" "get_survey_response_integration" {
+  api_id           = aws_apigatewayv2_api.lambda_api.id
+  integration_type = "AWS_PROXY"
+
+  connection_type    = "INTERNET"
+  description       = "Get survey response Lambda integration"
+  integration_method = "POST"
+  integration_uri    = aws_lambda_function.get_survey_response_handler.invoke_arn
+}
+
+resource "aws_apigatewayv2_route" "get_survey_response_route" {
+  api_id    = aws_apigatewayv2_api.lambda_api.id
+  route_key = "POST /get-survey-response"
+  target    = "integrations/${aws_apigatewayv2_integration.get_survey_response_integration.id}"
+}
+
+resource "aws_lambda_permission" "get_survey_response_api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.get_survey_response_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
+}
+
+# Archive Lambda function code for checking survey responses
+data "archive_file" "check_survey_responses_zip" {
+  type        = "zip"
+  source_file = "${path.module}/lambda/check_survey_responses.js"
+  output_path = "${path.module}/lambda/check_survey_responses_function.zip"
+}
+
+# Lambda Function for checking survey responses
+resource "aws_lambda_function" "check_survey_responses_handler" {
+  filename         = data.archive_file.check_survey_responses_zip.output_path
+  function_name    = "check-survey-responses"
+  role            = aws_iam_role.lambda_role.arn
+  handler         = "check_survey_responses.handler"
+  runtime         = "nodejs18.x"
+  timeout         = 30
+  memory_size     = 256
+  source_code_hash = data.archive_file.check_survey_responses_zip.output_base64sha256
+
+  environment {
+    variables = {
+      SURVEY_TABLE = aws_dynamodb_table.user_survey_responses.name
+    }
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "OpenMetabolics"
+  }
+}
+
+# API Gateway integration for checking survey responses
+resource "aws_apigatewayv2_integration" "check_survey_responses_integration" {
+  api_id           = aws_apigatewayv2_api.lambda_api.id
+  integration_type = "AWS_PROXY"
+
+  connection_type    = "INTERNET"
+  description       = "Check survey responses Lambda integration"
+  integration_method = "POST"
+  integration_uri    = aws_lambda_function.check_survey_responses_handler.invoke_arn
+}
+
+resource "aws_apigatewayv2_route" "check_survey_responses_route" {
+  api_id    = aws_apigatewayv2_api.lambda_api.id
+  route_key = "POST /check-survey-responses"
+  target    = "integrations/${aws_apigatewayv2_integration.check_survey_responses_integration.id}"
+}
+
+resource "aws_lambda_permission" "check_survey_responses_api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.check_survey_responses_handler.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
 }

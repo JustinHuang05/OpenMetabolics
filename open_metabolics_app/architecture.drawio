@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2024-03-21T00:00:00.000Z" agent="Mozilla/5.0" version="21.1.9" type="device">
+  <diagram id="OpenMetabolics-Architecture-1" name="OpenMetabolics Architecture">
+    <mxGraphModel dx="1422" dy="798" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="root-0" />
+        <mxCell id="parent-1" parent="root-0" />
+        
+        <!-- Frontend Container -->
+        <mxCell id="frontend-container-2" value="Frontend" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" vertex="1" parent="parent-1">
+          <mxGeometry x="40" y="40" width="200" height="400" as="geometry" />
+        </mxCell>
+        
+        <!-- Auth Pages Group -->
+        <mxCell id="auth-pages-3" value="Authentication Pages" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=26;fillColor=#dae8fc;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;strokeColor=#6c8ebf;" vertex="1" parent="frontend-container-2">
+          <mxGeometry x="20" y="40" width="160" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="login-page-4" value="Login Page" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="auth-pages-3">
+          <mxGeometry y="26" width="160" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="signup-page-5" value="Sign Up Page" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="auth-pages-3">
+          <mxGeometry y="52" width="160" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="verification-page-6" value="Verification Page" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="auth-pages-3">
+          <mxGeometry y="78" width="160" height="26" as="geometry" />
+        </mxCell>
+        
+        <!-- Main Pages -->
+        <mxCell id="home-page-7" value="Home Page (SensorScreen)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="frontend-container-2">
+          <mxGeometry x="20" y="160" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="past-sessions-8" value="Past Sessions Page" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="frontend-container-2">
+          <mxGeometry x="20" y="220" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="user-profile-9" value="User Profile Page" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="frontend-container-2">
+          <mxGeometry x="20" y="280" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="session-details-10" value="Session Details Page" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="frontend-container-2">
+          <mxGeometry x="20" y="340" width="160" height="40" as="geometry" />
+        </mxCell>
+        
+        <!-- AWS Cloud Container -->
+        <mxCell id="aws-container-11" value="AWS Cloud" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" vertex="1" parent="parent-1">
+          <mxGeometry x="320" y="40" width="800" height="400" as="geometry" />
+        </mxCell>
+        
+        <!-- API Gateway -->
+        <mxCell id="api-gateway-12" value="API Gateway" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=26;fillColor=#fff2cc;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;strokeColor=#d6b656;" vertex="1" parent="aws-container-11">
+          <mxGeometry x="20" y="40" width="200" height="156" as="geometry" />
+        </mxCell>
+        <mxCell id="save-data-13" value="Lambda: Save Raw Sensor Data" style="text;strokeColor=#d79b00;fillColor=#ffe6cc;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="api-gateway-12">
+          <mxGeometry y="26" width="200" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="manage-profile-14" value="Lambda: Manage User Profile" style="text;strokeColor=#d79b00;fillColor=#ffe6cc;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="api-gateway-12">
+          <mxGeometry y="52" width="200" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="get-profile-15" value="Lambda: Get User Profile" style="text;strokeColor=#d79b00;fillColor=#ffe6cc;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="api-gateway-12">
+          <mxGeometry y="78" width="200" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="get-sessions-16" value="Lambda: Get Past Sessions Summary" style="text;strokeColor=#d79b00;fillColor=#ffe6cc;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="api-gateway-12">
+          <mxGeometry y="104" width="200" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="get-session-details-17" value="Lambda: Get Session Details" style="text;strokeColor=#d79b00;fillColor=#ffe6cc;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="api-gateway-12">
+          <mxGeometry y="130" width="200" height="26" as="geometry" />
+        </mxCell>
+        
+        <!-- Cognito -->
+        <mxCell id="cognito-18" value="Cognito" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=26;fillColor=#e1d5e7;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;strokeColor=#9673a6;" vertex="1" parent="aws-container-11">
+          <mxGeometry x="260" y="40" width="160" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="user-auth-19" value="User Authentication" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="cognito-18">
+          <mxGeometry y="26" width="160" height="26" as="geometry" />
+        </mxCell>
+        
+        <!-- DynamoDB -->
+        <mxCell id="dynamodb-20" value="DynamoDB" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=26;fillColor=#dae8fc;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;strokeColor=#6c8ebf;" vertex="1" parent="aws-container-11">
+          <mxGeometry x="460" y="40" width="160" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="raw-data-21" value="Raw Sensor Data" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="dynamodb-20">
+          <mxGeometry y="26" width="160" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="ee-results-22" value="Energy Expenditure Results" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="dynamodb-20">
+          <mxGeometry y="52" width="160" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="user-profiles-23" value="User Profiles" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="dynamodb-20">
+          <mxGeometry y="78" width="160" height="26" as="geometry" />
+        </mxCell>
+        
+        <!-- Fargate -->
+        <mxCell id="fargate-24" value="Fargate" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=26;fillColor=#f8cecc;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;strokeColor=#b85450;" vertex="1" parent="aws-container-11">
+          <mxGeometry x="660" y="40" width="120" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="ee-processing-25" value="Energy Expenditure Processing" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;" vertex="1" parent="fargate-24">
+          <mxGeometry y="26" width="120" height="26" as="geometry" />
+        </mxCell>
+        
+        <!-- SES -->
+        <mxCell id="ses-26" value="SES: Email Verification" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="aws-container-11">
+          <mxGeometry x="260" y="120" width="160" height="40" as="geometry" />
+        </mxCell>
+        
+        <!-- Connections -->
+        <mxCell id="conn-27" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;strokeColor=#666666;" edge="1" parent="parent-1" source="home-page-7" target="save-data-13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn-28" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;strokeColor=#666666;" edge="1" parent="parent-1" source="home-page-7" target="ee-processing-25">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- Notes -->
+        <mxCell id="note1-29" value="Past Sessions Page fetches only session summaries&#xa;(timestamp, ID, measurement count)" style="shape=note;whiteSpace=wrap;html=1;size=14;verticalAlign=top;align=left;spacingTop=-6;rounded=0;shadow=0;comic=0;labelPosition=center;verticalLabelPosition=bottom;align=center;spacing=10;strokeColor=#666666;fillColor=#f5f5f5;fontColor=#333333;" vertex="1" parent="parent-1">
+          <mxGeometry x="40" y="460" width="240" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="note2-30" value="Session Details Page loads full session data&#xa;when viewing a specific session" style="shape=note;whiteSpace=wrap;html=1;size=14;verticalAlign=top;align=left;spacingTop=-6;rounded=0;shadow=0;comic=0;labelPosition=center;verticalLabelPosition=bottom;align=center;spacing=10;strokeColor=#666666;fillColor=#f5f5f5;fontColor=#333333;" vertex="1" parent="parent-1">
+          <mxGeometry x="300" y="460" width="240" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="note3-31" value="This optimizes initial load time&#xa;and reduces data transfer" style="shape=note;whiteSpace=wrap;html=1;size=14;verticalAlign=top;align=left;spacingTop=-6;rounded=0;shadow=0;comic=0;labelPosition=center;verticalLabelPosition=bottom;align=center;spacing=10;strokeColor=#666666;fillColor=#f5f5f5;fontColor=#333333;" vertex="1" parent="parent-1">
+          <mxGeometry x="560" y="460" width="240" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile> 

@@ -18,7 +18,7 @@ import '../providers/user_profile_provider.dart';
 import '../config/api_config.dart';
 import 'past_sessions_page.dart';
 import '../widgets/energy_expenditure_card.dart';
-import 'feedback_form_page.dart';
+import '../widgets/feedback_bottom_drawer.dart';
 
 class SensorScreen extends StatefulWidget {
   @override
@@ -55,9 +55,8 @@ class _SensorScreenState extends State<SensorScreen> {
 
   static const List<String> _titles = [
     'Open Metabolics',
-    'User Profile',
     'Past Sessions',
-    'User Survey',
+    'User Profile',
   ];
 
   @override
@@ -600,7 +599,25 @@ class _SensorScreenState extends State<SensorScreen> {
                         child: Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
-                            onPressed: () => Navigator.of(context).pop(),
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                enableDrag: true,
+                                isDismissible: true,
+                                builder: (context) => DraggableScrollableSheet(
+                                  initialChildSize: 0.9,
+                                  minChildSize: 0.5,
+                                  maxChildSize: 0.95,
+                                  expand: false,
+                                  builder: (context, scrollController) =>
+                                      FeedbackBottomDrawer(
+                                          sessionId: sessionId),
+                                ),
+                              );
+                            },
                             child: Text('Close'),
                           ),
                         ),
@@ -913,14 +930,13 @@ class _SensorScreenState extends State<SensorScreen> {
 
     final List<Widget> _pages = [
       _buildHomeTab(context, lightPurple, textGray, profileProvider),
+      PastSessionsPage(),
       UserProfilePage(
         userProfile: profileProvider.userProfile,
         onProfileUpdated: (profile) {
           profileProvider.updateProfile(profile);
         },
       ),
-      PastSessionsPage(),
-      FeedbackFormPage(),
     ];
 
     return Scaffold(
@@ -992,16 +1008,12 @@ class _SensorScreenState extends State<SensorScreen> {
             label: 'Home',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-          BottomNavigationBarItem(
             icon: Icon(Icons.history),
             label: 'History',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.question_answer),
-            label: 'Survey',
+            icon: Icon(Icons.person),
+            label: 'Profile',
           ),
         ],
       ),

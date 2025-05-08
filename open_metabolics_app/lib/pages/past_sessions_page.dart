@@ -15,6 +15,7 @@ class PastSessionsPage extends StatefulWidget {
 
 class _PastSessionsPageState extends State<PastSessionsPage> {
   List<SessionSummary> _sessions = [];
+  Map<String, bool> _surveyResponses = {};
   bool _isLoading = true;
   String? _errorMessage;
   final DateFormat _dateFormat = DateFormat('MMMM d, y');
@@ -35,7 +36,8 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         throw Exception('User not logged in');
       }
 
-      final response = await http.post(
+      // First get the sessions
+      final sessionsResponse = await http.post(
         Uri.parse(ApiConfig.getPastSessionsSummary),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -43,25 +45,81 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         }),
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _sessions = (data['sessions'] as List)
-              .map((session) => SessionSummary.fromJson(session))
-              .toList();
-          _isLoading = false;
-        });
+      if (sessionsResponse.statusCode == 200) {
+        final data = jsonDecode(sessionsResponse.body);
+        if (mounted) {
+          setState(() {
+            _sessions = (data['sessions'] as List)
+                .map((session) => SessionSummary.fromJson(session))
+                .toList();
+          });
+        }
+
+        // Then check survey responses with the actual session IDs
+        final surveyResponse = await http.post(
+          Uri.parse(ApiConfig.checkSurveyResponses),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'user_email': userEmail,
+            'session_ids': _sessions.map((s) => s.sessionId).toList(),
+          }),
+        );
+
+        if (surveyResponse.statusCode == 200) {
+          final surveyData = jsonDecode(surveyResponse.body);
+          if (mounted) {
+            setState(() {
+              _surveyResponses =
+                  Map<String, bool>.from(surveyData['surveyResponses']);
+              _isLoading = false;
+            });
+          }
+        } else {
+          final errorData = jsonDecode(surveyResponse.body);
+          throw Exception(
+              'Failed to check survey responses: ${errorData['error']}${errorData['details'] != null ? '\nDetails: ${errorData['details']}' : ''}');
+        }
       } else {
-        final errorData = jsonDecode(response.body);
+        final errorData = jsonDecode(sessionsResponse.body);
         throw Exception(
             'Failed to fetch past sessions: ${errorData['error']}${errorData['details'] != null ? '\nDetails: ${errorData['details']}' : ''}');
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
       print('Error fetching past sessions: $e');
+    }
+  }
+
+  Future<void> _checkSurveyResponses(String userEmail) async {
+    try {
+      final response = await http.post(
+        Uri.parse(ApiConfig.checkSurveyResponses),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'user_email': userEmail,
+          'session_ids': _sessions.map((s) => s.sessionId).toList(),
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (mounted) {
+          setState(() {
+            _surveyResponses = Map<String, bool>.from(data['surveyResponses']);
+          });
+        }
+      } else {
+        final errorData = jsonDecode(response.body);
+        throw Exception(
+            'Failed to check survey responses: ${errorData['error']}${errorData['details'] != null ? '\nDetails: ${errorData['details']}' : ''}');
+      }
+    } catch (e) {
+      print('Error checking survey responses: $e');
     }
   }
 
@@ -139,6 +197,8 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           itemBuilder: (context, index) {
             final session = _sessions[index];
             final date = DateTime.parse(session.timestamp);
+            final hasFeedback = _surveyResponses[session.sessionId] ?? false;
+
             return Padding(
               padding: const EdgeInsets.only(bottom: 8.0),
               child: Card(
@@ -153,7 +213,10 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                           timestamp: session.timestamp,
                         ),
                       ),
-                    );
+                    ).then((_) {
+                      // Refresh survey responses when returning from session details
+                      _checkSurveyResponses(session.sessionId);
+                    });
                   },
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -182,6 +245,15 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                             ],
                           ),
                         ),
+                        if (!hasFeedback)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8.0),
+                            child: Icon(
+                              Icons.error_outline,
+                              color: Colors.red,
+                              size: 20,
+                            ),
+                          ),
                         Icon(Icons.chevron_right, color: Colors.grey[400]),
                       ],
                     ),

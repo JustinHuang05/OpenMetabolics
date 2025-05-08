@@ -23,4 +23,9 @@ class ApiConfig {
   static String get getSessionDetails => '$baseUrl/get-session-details';
   static String get getPastSessions =>
       '$baseUrl/get-past-sessions'; // Legacy endpoint
+
+  // Survey Endpoints
+  static String get saveSurveyResponse => '$baseUrl/save-survey-response';
+  static String get checkSurveyResponses => '$baseUrl/check-survey-responses';
+  static String get getSurveyResponse => '$baseUrl/get-survey-response';
 }

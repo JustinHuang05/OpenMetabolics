@@ -1,8 +1,8 @@
 {
-  "name": "get-past-sessions",
+  "name": "save-survey-response",
   "version": "1.0.0",
-  "description": "Lambda function to get past sessions",
-  "main": "get_past_sessions.js",
+  "description": "Lambda function to save survey responses",
+  "main": "save_survey_response.js",
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.525.0",
     "@aws-sdk/util-dynamodb": "^3.525.0"
