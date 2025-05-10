@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true">
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">cognito-idp.us-east-1.amazonaws.com</domain>
+        <domain includeSubdomains="true">1al76gfg0j.execute-api.us-east-1.amazonaws.com</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
