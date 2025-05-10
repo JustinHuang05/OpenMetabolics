@@ -48,7 +48,6 @@ class _SensorScreenState extends State<SensorScreen> {
 
   final AuthService _authService = AuthService();
   UserProfile? _userProfile;
-  bool _isLoading = true;
   String? _errorMessage;
 
   int _selectedIndex = 0;
@@ -99,10 +98,6 @@ class _SensorScreenState extends State<SensorScreen> {
     } catch (e) {
       setState(() {
         _errorMessage = e.toString();
-      });
-    } finally {
-      setState(() {
-        _isLoading = false;
       });
     }
   }
@@ -303,7 +298,9 @@ class _SensorScreenState extends State<SensorScreen> {
 
   void _stopTracking() async {
     print('Stop button pressed');
-    SensorChannel.stopSensors(); // Stop sensors via platform channel
+
+    // Stop sensors and update UI
+    SensorChannel.stopSensors();
     _accelerometerSubscription?.cancel();
     _gyroscopeSubscription?.cancel();
 
@@ -313,67 +310,9 @@ class _SensorScreenState extends State<SensorScreen> {
 
     // Stop recording and save data
     await _sensorDataRecorder.stopRecording();
-    await _loadCSVData(); // Load CSV data to display in ListView
 
-    // Only proceed with processing if we have data
-    if (_csvData.isEmpty) {
-      print("No data collected during tracking session");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'No data was collected during this session. Please try again.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    // Show loading dialog since we have data to process
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          content: Container(
-            constraints: BoxConstraints(maxWidth: 300),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text(
-                  'Processing Session Data...',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-                ),
-                SizedBox(height: 8),
-                Column(
-                  children: [
-                    Text(
-                      'Saving sensor data',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                      textAlign: TextAlign.center,
-                    ),
-                    Text(
-                      'Uploading to server',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                      textAlign: TextAlign.center,
-                    ),
-                    Text(
-                      'Calculating energy expenditure',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    await _uploadCSVToServer(); // Upload CSV to AWS Lambda
+    // Start upload with progress bar
+    await _uploadCSVToServer();
   }
 
   Future<void> _uploadCSVToServer() async {
@@ -419,38 +358,126 @@ class _SensorScreenState extends State<SensorScreen> {
       final String sessionId =
           '${DateTime.now().millisecondsSinceEpoch}_${userEmail.replaceAll('@', '_').replaceAll('.', '_')}';
 
-      for (int i = 0; i < dataRows.length; i += batchSize) {
-        List<String> batch =
-            dataRows.sublist(i, (i + batchSize).clamp(0, dataRows.length));
-        String batchCsv =
-            "$header\n${batch.join("\n")}"; // Add header to each batch
-
-        // Include session_id in the payload
-        final Map<String, dynamic> payload = {
-          "csv_data": batchCsv,
-          "user_email": userEmail,
-          "session_id": sessionId
-        };
-
-        // AWS Lambda API Gateway endpoint
-        final String lambdaEndpoint = ApiConfig.saveRawSensorData;
-
-        print(
-            "📤 Uploading batch ${i ~/ batchSize + 1}/$totalBatches with ${batch.length} rows");
-
-        // Send the structured JSON payload
-        final response = await http.post(
-          Uri.parse(lambdaEndpoint),
-          headers: {"Content-Type": "application/json"},
-          body: jsonEncode(payload),
+      // Show progress dialog for uploads
+      if (mounted) {
+        final progressNotifier = ValueNotifier<double>(0.0);
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => ValueListenableBuilder<double>(
+            valueListenable: progressNotifier,
+            builder: (context, progress, _) {
+              return Dialog(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                child: Container(
+                  constraints: BoxConstraints(maxWidth: 300),
+                  padding: EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 20,
+                        offset: Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Animated icon
+                      Container(
+                        padding: EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.deepPurple.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.cloud_upload,
+                          color: Colors.deepPurple,
+                          size: 32,
+                        ),
+                      ),
+                      SizedBox(height: 20),
+                      Text(
+                        'Uploading Session Data',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      SizedBox(height: 24),
+                      // Modern progress bar
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          backgroundColor: Colors.grey[200],
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.deepPurple),
+                          minHeight: 8,
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        'Uploading data... ${(progress * 100).toStringAsFixed(0)}%',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
         );
 
-        if (response.statusCode == 200) {
-          print("✅ Batch ${i ~/ batchSize + 1} uploaded successfully!");
-        } else {
+        for (int i = 0; i < dataRows.length; i += batchSize) {
+          List<String> batch =
+              dataRows.sublist(i, (i + batchSize).clamp(0, dataRows.length));
+          String batchCsv =
+              "$header\n${batch.join("\n")}"; // Add header to each batch
+
+          // Include session_id in the payload
+          final Map<String, dynamic> payload = {
+            "csv_data": batchCsv,
+            "user_email": userEmail,
+            "session_id": sessionId
+          };
+
+          // AWS Lambda API Gateway endpoint
+          final String lambdaEndpoint = ApiConfig.saveRawSensorData;
+
           print(
-              "❌ Failed to upload batch ${i ~/ batchSize + 1}: ${response.body}");
-          break; // Stop on failure
+              "📤 Uploading batch ${i ~/ batchSize + 1}/$totalBatches with ${batch.length} rows");
+
+          // Send the structured JSON payload
+          final response = await http.post(
+            Uri.parse(lambdaEndpoint),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode(payload),
+          );
+
+          if (response.statusCode == 200) {
+            print("✅ Batch ${i ~/ batchSize + 1} uploaded successfully!");
+
+            // Update progress
+            if (mounted) {
+              progressNotifier.value = (i ~/ batchSize + 1) / totalBatches;
+            }
+          } else {
+            print(
+                "❌ Failed to upload batch ${i ~/ batchSize + 1}: ${response.body}");
+            break; // Stop on failure
+          }
         }
       }
 
@@ -458,6 +485,15 @@ class _SensorScreenState extends State<SensorScreen> {
       await _processEnergyExpenditure(sessionId, userEmail);
     } catch (e) {
       print("⚠️ Error uploading CSV: $e");
+      if (mounted) {
+        Navigator.of(context).pop(); // Remove progress dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error uploading data: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -466,6 +502,88 @@ class _SensorScreenState extends State<SensorScreen> {
     try {
       print(
           "🔄 Starting energy expenditure processing for session: $sessionId");
+
+      // Show processing progress dialog
+      if (mounted) {
+        Navigator.of(context).pop(); // Remove upload progress dialog
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => StatefulBuilder(
+            builder: (context, setState) {
+              return Dialog(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                child: Container(
+                  constraints: BoxConstraints(maxWidth: 300),
+                  padding: EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 20,
+                        offset: Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Animated icon
+                      Container(
+                        padding: EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.deepPurple.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.analytics,
+                          color: Colors.deepPurple,
+                          size: 32,
+                        ),
+                      ),
+                      SizedBox(height: 20),
+                      Text(
+                        'Processing Session Data',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      SizedBox(height: 24),
+                      // Modern indeterminate progress bar
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: LinearProgressIndicator(
+                          value: null,
+                          backgroundColor: Colors.grey[200],
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.deepPurple),
+                          minHeight: 8,
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        'Calculating energy expenditure...',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      }
 
       final Map<String, dynamic> payload = {
         "session_id": sessionId,
@@ -649,6 +767,7 @@ class _SensorScreenState extends State<SensorScreen> {
   Widget _buildHomeTab(BuildContext context, Color lightPurple, Color textGray,
       UserProfileProvider profileProvider) {
     List<Widget> content = [];
+
     if (_isTracking) {
       content.add(
         Card(
@@ -856,25 +975,46 @@ class _SensorScreenState extends State<SensorScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                Icons.sensors_off,
+                Icons.sensors,
                 size: 64,
-                color: Colors.grey.shade400,
+                color: Colors.deepPurple.shade300,
               ),
               SizedBox(height: 16),
               Text(
-                'No Sensor Data',
+                'Ready to Record',
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 24,
                   fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade600,
+                  color: Colors.deepPurple.shade700,
                 ),
               ),
-              SizedBox(height: 8),
-              Text(
-                'Press the Start button to begin recording',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey.shade500,
+              SizedBox(height: 12),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.deepPurple.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      'Press the Start button to begin recording',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.deepPurple.shade700,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'Your data will be automatically processed and uploaded',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.deepPurple.shade500,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ),
               ),
             ],
