@@ -975,46 +975,25 @@ class _SensorScreenState extends State<SensorScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                Icons.sensors,
+                Icons.sensors_off,
                 size: 64,
-                color: Colors.deepPurple.shade300,
+                color: Colors.grey.shade400,
               ),
               SizedBox(height: 16),
               Text(
-                'Ready to Record',
+                'No Sensor Data',
                 style: TextStyle(
-                  fontSize: 24,
+                  fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: Colors.deepPurple.shade700,
+                  color: Colors.grey.shade600,
                 ),
               ),
-              SizedBox(height: 12),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.deepPurple.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      'Press the Start button to begin recording',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.deepPurple.shade700,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Your data will be automatically processed and uploaded',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.deepPurple.shade500,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
+              SizedBox(height: 8),
+              Text(
+                'Press the Start button to begin recording',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey.shade500,
                 ),
               ),
             ],
