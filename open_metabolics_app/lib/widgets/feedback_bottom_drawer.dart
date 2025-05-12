@@ -209,6 +209,74 @@ class ScaleQuestion extends FeedbackQuestion<int> {
   }
 }
 
+class NumberInputQuestion extends FeedbackQuestion<num> {
+  final TextEditingController controller = TextEditingController();
+  final String suffix;
+
+  NumberInputQuestion(String questionText,
+      {this.suffix = '', num? initialValue})
+      : super(questionText) {
+    if (initialValue != null) {
+      value = initialValue;
+      controller.text = initialValue.toString();
+      controller.selection = TextSelection.fromPosition(
+        TextPosition(offset: controller.text.length),
+      );
+    }
+  }
+
+  @override
+  Widget buildWidget(VoidCallback onChanged, bool submitted) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          questionText,
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+        ),
+        SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            border: OutlineInputBorder(),
+            hintText: 'Enter a number',
+            suffixText: suffix,
+            fillColor: Colors.grey[100],
+            filled: true,
+          ),
+          validator: (val) {
+            if (val == null || val.trim().isEmpty) {
+              return 'Please enter a number.';
+            }
+            if (double.tryParse(val) == null) {
+              return 'Please enter a valid number.';
+            }
+            return null;
+          },
+          onChanged: (val) {
+            if (val.isNotEmpty) {
+              value = double.tryParse(val);
+            } else {
+              value = null;
+            }
+            onChanged();
+          },
+        ),
+      ],
+    );
+  }
+
+  @override
+  bool get isAnswered => value != null;
+
+  @override
+  void clear() {
+    value = null;
+    controller.clear();
+  }
+}
+
 class FeedbackBottomDrawer extends StatefulWidget {
   final String? sessionId;
   final Map<String, dynamic>? existingResponse;
@@ -245,10 +313,13 @@ class _FeedbackBottomDrawerState extends State<FeedbackBottomDrawer> {
       initialValue:
           widget.existingResponse?['Responses']?['question_1']?.toString(),
     ),
-    OpenEndedQuestion(
-      '2. What was your self-perceived duration of the activity (in minutes)?:',
-      initialValue:
-          widget.existingResponse?['Responses']?['question_2']?.toString(),
+    NumberInputQuestion(
+      '2. What was your self-perceived duration of the activity?:',
+      suffix: 'min',
+      initialValue: widget.existingResponse?['Responses']?['question_2'] != null
+          ? double.tryParse(
+              widget.existingResponse!['Responses']!['question_2'].toString())
+          : null,
     ),
     ScaleQuestion(
       '3. What was your self-percieved intensity when performing the activity (1-10)?',
