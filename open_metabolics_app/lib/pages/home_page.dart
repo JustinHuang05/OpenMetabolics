@@ -56,7 +56,7 @@ class SessionStatusWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       elevation: 4,
-      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      margin: EdgeInsets.symmetric(vertical: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
       ),
@@ -165,7 +165,7 @@ class SessionStatusWidget extends StatelessWidget {
                 if (session.results != null &&
                     session.results!['error'] != null) ...[
                   Container(
-                    padding: EdgeInsets.all(12),
+                    padding: EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: Colors.red.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
@@ -173,14 +173,13 @@ class SessionStatusWidget extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.error_outline, color: Colors.red, size: 20),
-                        SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             session.results!['error'],
                             style: TextStyle(
                               color: Colors.red,
                               fontSize: 14,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
@@ -189,7 +188,7 @@ class SessionStatusWidget extends StatelessWidget {
                   ),
                 ] else ...[
                   Container(
-                    padding: EdgeInsets.all(12),
+                    padding: EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: Colors.green.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
@@ -197,14 +196,14 @@ class SessionStatusWidget extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.check_circle, color: Colors.green, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'Session complete',
-                          style: TextStyle(
-                            color: Colors.green,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
+                        Expanded(
+                          child: Text(
+                            'Session complete',
+                            style: TextStyle(
+                              color: Colors.green,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
                       ],
