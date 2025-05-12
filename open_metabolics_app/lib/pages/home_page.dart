@@ -727,6 +727,7 @@ class _SensorScreenState extends State<SensorScreen> {
       if (mounted) {
         showDialog(
           context: context,
+          barrierDismissible: true,
           builder: (context) => Dialog(
             child: Container(
               constraints: BoxConstraints(
@@ -823,25 +824,7 @@ class _SensorScreenState extends State<SensorScreen> {
                       child: Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: () {
-                            Navigator.of(context).pop();
-                            showModalBottomSheet(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              enableDrag: true,
-                              isDismissible: true,
-                              builder: (context) => DraggableScrollableSheet(
-                                initialChildSize: 0.9,
-                                minChildSize: 0.5,
-                                maxChildSize: 0.95,
-                                expand: false,
-                                builder: (context, scrollController) =>
-                                    FeedbackBottomDrawer(
-                                        sessionId: session.sessionId),
-                              ),
-                            );
-                          },
+                          onPressed: () => Navigator.of(context).pop(),
                           child: Text('Close'),
                         ),
                       ),
@@ -851,7 +834,24 @@ class _SensorScreenState extends State<SensorScreen> {
               ),
             ),
           ),
-        );
+        ).then((_) {
+          // Show survey when dialog is dismissed
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            enableDrag: true,
+            isDismissible: true,
+            builder: (context) => DraggableScrollableSheet(
+              initialChildSize: 0.9,
+              minChildSize: 0.5,
+              maxChildSize: 0.95,
+              expand: false,
+              builder: (context, scrollController) =>
+                  FeedbackBottomDrawer(sessionId: session.sessionId),
+            ),
+          );
+        });
       }
     } catch (e) {
       print("⚠️ Error uploading CSV: $e");

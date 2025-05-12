@@ -308,7 +308,7 @@ class _FeedbackBottomDrawerState extends State<FeedbackBottomDrawer> {
             context: context,
             builder: (context) => AlertDialog(
               title: Text('Thank you!'),
-              content: Text('Your feedback has been submitted.'),
+              content: Text('Your survey has been submitted.'),
               actions: [
                 TextButton(
                   onPressed: () {
@@ -381,7 +381,7 @@ class _FeedbackBottomDrawerState extends State<FeedbackBottomDrawer> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Session Feedback',
+                  'Session Survey',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 IconButton(
