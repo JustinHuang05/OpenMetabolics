@@ -280,15 +280,6 @@ class EmptyStateWidget extends StatelessWidget {
                   color: Colors.black87,
                 ),
               ),
-              SizedBox(height: 12),
-              Text(
-                'Press the start button below to begin a new session',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey[600],
-                ),
-              ),
             ],
           ),
         ),
