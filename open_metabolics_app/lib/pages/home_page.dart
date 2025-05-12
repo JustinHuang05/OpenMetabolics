@@ -390,6 +390,16 @@ class _SensorScreenState extends State<SensorScreen> {
   void _startTracking() async {
     final profileProvider = context.read<UserProfileProvider>();
 
+    if (profileProvider.isLoading) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please wait while your profile loads'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     if (!profileProvider.hasProfile) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -594,6 +604,54 @@ class _SensorScreenState extends State<SensorScreen> {
 
     // Stop recording and save data
     await _sensorDataRecorder.stopRecording();
+
+    // Get the file path for this session
+    final filePath = await _sensorDataRecorder.getCurrentSessionFilePath();
+    if (filePath == null) {
+      setState(() {
+        session.isComplete = true;
+        session.results = {
+          'error': 'No data file found',
+          'total_windows_processed': 0,
+          'basal_metabolic_rate': 0,
+          'gait_cycles': 0,
+          'results': []
+        };
+      });
+      return;
+    }
+
+    final file = File(filePath);
+    if (!await file.exists()) {
+      setState(() {
+        session.isComplete = true;
+        session.results = {
+          'error': 'No data file found',
+          'total_windows_processed': 0,
+          'basal_metabolic_rate': 0,
+          'gait_cycles': 0,
+          'results': []
+        };
+      });
+      return;
+    }
+
+    // Read CSV file line-by-line
+    List<String> csvLines = await file.readAsLines();
+
+    if (csvLines.length <= 1) {
+      setState(() {
+        session.isComplete = true;
+        session.results = {
+          'error': 'No data recorded',
+          'total_windows_processed': 0,
+          'basal_metabolic_rate': 0,
+          'gait_cycles': 0,
+          'results': []
+        };
+      });
+      return;
+    }
 
     // Start upload with progress bar
     await _uploadCSVToServer(session);
