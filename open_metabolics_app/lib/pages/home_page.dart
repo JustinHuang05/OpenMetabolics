@@ -20,6 +20,284 @@ import 'past_sessions_page.dart';
 import '../widgets/energy_expenditure_card.dart';
 import '../widgets/feedback_bottom_drawer.dart';
 
+// Session status class to track session state
+class SessionStatus {
+  final String sessionId;
+  final DateTime startTime;
+  final DateTime? endTime;
+  double uploadProgress;
+  bool isProcessing;
+  bool isComplete;
+  Map<String, dynamic>? results;
+
+  SessionStatus({
+    required this.sessionId,
+    required this.startTime,
+    this.endTime,
+    this.uploadProgress = 0.0,
+    this.isProcessing = false,
+    this.isComplete = false,
+    this.results,
+  });
+}
+
+// Widget to display session status
+class SessionStatusWidget extends StatelessWidget {
+  final SessionStatus session;
+  final VoidCallback? onDismiss;
+
+  const SessionStatusWidget({
+    Key? key,
+    required this.session,
+    this.onDismiss,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 4,
+      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              Colors.grey.shade50,
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: _getStatusColor(session).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          _getStatusIcon(session),
+                          color: _getStatusColor(session),
+                          size: 24,
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _getStatusTitle(session),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          Text(
+                            session.startTime.toString().substring(0, 19),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  if (session.isComplete && onDismiss != null)
+                    IconButton(
+                      icon: Icon(Icons.close, color: Colors.grey[400]),
+                      onPressed: onDismiss,
+                    ),
+                ],
+              ),
+              SizedBox(height: 16),
+              if (!session.isComplete) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: session.isProcessing ? null : session.uploadProgress,
+                    backgroundColor: Colors.grey[200],
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(_getStatusColor(session)),
+                    minHeight: 8,
+                  ),
+                ),
+                SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      session.isProcessing
+                          ? 'Processing data...'
+                          : 'Uploading: ${(session.uploadProgress * 100).toStringAsFixed(0)}%',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 14,
+                      ),
+                    ),
+                    if (session.isProcessing)
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                              _getStatusColor(session)),
+                        ),
+                      ),
+                  ],
+                ),
+              ] else ...[
+                if (session.results != null &&
+                    session.results!['error'] != null) ...[
+                  Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.error_outline, color: Colors.red, size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            session.results!['error'],
+                            style: TextStyle(
+                              color: Colors.red,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.green.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.check_circle, color: Colors.green, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'Session complete',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _getStatusColor(SessionStatus session) {
+    if (session.isComplete) {
+      return session.results?['error'] != null ? Colors.red : Colors.green;
+    }
+    return session.isProcessing ? Colors.orange : Colors.blue;
+  }
+
+  IconData _getStatusIcon(SessionStatus session) {
+    if (session.isComplete) {
+      return session.results?['error'] != null
+          ? Icons.error_outline
+          : Icons.check_circle;
+    }
+    return session.isProcessing ? Icons.sync : Icons.cloud_upload;
+  }
+
+  String _getStatusTitle(SessionStatus session) {
+    if (session.isComplete) {
+      return session.results?['error'] != null
+          ? 'Upload Failed'
+          : 'Session Complete';
+    }
+    return session.isProcessing ? 'Processing' : 'Uploading';
+  }
+}
+
+// Widget to display when no sessions are active
+class EmptyStateWidget extends StatelessWidget {
+  const EmptyStateWidget({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height -
+          200, // Account for app bar and bottom nav
+      child: Center(
+        child: Container(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.sensors_off,
+                  size: 64,
+                  color: Colors.grey[600],
+                ),
+              ),
+              SizedBox(height: 24),
+              Text(
+                'No Active Sessions',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Press the start button below to begin a new session',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class SensorScreen extends StatefulWidget {
   @override
   _SensorScreenState createState() => _SensorScreenState();
@@ -35,6 +313,9 @@ class _SensorScreenState extends State<SensorScreen> {
   int _rowCount = 0; // Count the number of rows saved
   final int _batchSize = 200; // Compare after 500 rows
   List<double> _gyroscopeNorms = []; // Store gyroscope second norms
+
+  // Add list to track multiple sessions
+  List<SessionStatus> _sessions = [];
 
   StreamSubscription? _accelerometerSubscription;
   StreamSubscription? _gyroscopeSubscription;
@@ -116,7 +397,7 @@ class _SensorScreenState extends State<SensorScreen> {
     super.dispose();
   }
 
-  void _startTracking() {
+  void _startTracking() async {
     final profileProvider = context.read<UserProfileProvider>();
 
     if (!profileProvider.hasProfile) {
@@ -132,23 +413,9 @@ class _SensorScreenState extends State<SensorScreen> {
 
     print('Start button pressed');
 
-    // Reset all states and buffers
-    _sensorDataRecorder
-        .startRecording(); // Reset the CSV file and recording state
-    _startTime = DateTime.now(); // Reset start time
-
-    setState(() {
-      _isTracking = true;
-      _csvData.clear(); // Clear any previously displayed CSV data
-      _gyroscopeNorms.clear(); // Clear gyroscope norms
-      _rowCount = 0; // Reset row count
-      _isAboveThreshold = false; // Reset threshold flag
-    });
-
-    // Start sensors
+    // Start sensors immediately
     SensorChannel.startSensors().then((_) {}).catchError((error) {
       print('Error starting sensors: $error');
-      // Show error message to user
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error starting sensors: $error'),
@@ -157,7 +424,7 @@ class _SensorScreenState extends State<SensorScreen> {
       );
     });
 
-    // Accelerometer subscription
+    // Set up sensor subscription immediately
     _accelerometerSubscription?.cancel(); // Cancel any existing subscription
     _accelerometerSubscription = Stream.periodic(
       Duration(milliseconds: (1000 / _samplesPerSecond).round()),
@@ -203,7 +470,6 @@ class _SensorScreenState extends State<SensorScreen> {
         });
       }).catchError((error) {
         print('Error getting gyroscope data: $error');
-        // Show error message to user
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error getting gyroscope data: $error'),
@@ -213,7 +479,6 @@ class _SensorScreenState extends State<SensorScreen> {
       });
     }, onError: (error) {
       print('Error getting accelerometer data: $error');
-      // Show error message to user
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error getting accelerometer data: $error'),
@@ -222,8 +487,23 @@ class _SensorScreenState extends State<SensorScreen> {
       );
     });
 
-    // We don't need a separate gyroscope subscription anymore
-    // as we're getting gyroscope data along with accelerometer data
+    // Update UI state immediately
+    setState(() {
+      _isTracking = true;
+      _csvData.clear(); // Clear any previously displayed CSV data
+      _gyroscopeNorms.clear(); // Clear gyroscope norms
+      _rowCount = 0; // Reset row count
+      _isAboveThreshold = false; // Reset threshold flag
+      _startTime = DateTime.now(); // Reset start time
+    });
+
+    // Generate session ID and set up recording in parallel
+    final userEmail = await _authService.getCurrentUserEmail();
+    final sessionId =
+        '${DateTime.now().millisecondsSinceEpoch}_${userEmail?.replaceAll('@', '_').replaceAll('.', '_')}';
+
+    // Set up recording
+    await _sensorDataRecorder.startRecording(sessionId);
   }
 
   void _processGyroscopeDataBatch() {
@@ -308,14 +588,28 @@ class _SensorScreenState extends State<SensorScreen> {
       _isTracking = false;
     });
 
+    // Create new session status
+    final userEmail = await _authService.getCurrentUserEmail();
+    final sessionId =
+        '${DateTime.now().millisecondsSinceEpoch}_${userEmail?.replaceAll('@', '_').replaceAll('.', '_')}';
+    final session = SessionStatus(
+      sessionId: sessionId,
+      startTime: _startTime!,
+      endTime: DateTime.now(),
+    );
+
+    setState(() {
+      _sessions.insert(0, session);
+    });
+
     // Stop recording and save data
     await _sensorDataRecorder.stopRecording();
 
     // Start upload with progress bar
-    await _uploadCSVToServer();
+    await _uploadCSVToServer(session);
   }
 
-  Future<void> _uploadCSVToServer() async {
+  Future<void> _uploadCSVToServer(SessionStatus session) async {
     try {
       // Get the current user's email
       final authService = Provider.of<AuthService>(context, listen: false);
@@ -326,12 +620,27 @@ class _SensorScreenState extends State<SensorScreen> {
         return;
       }
 
-      final directory = await getApplicationDocumentsDirectory();
-      final path = '${directory.path}/sensor_data.csv';
-      final file = File(path);
+      // Get the file path for this session
+      final filePath = await _sensorDataRecorder.getCurrentSessionFilePath();
+      if (filePath == null) {
+        print("❌ No file path found for session ${session.sessionId}");
+        return;
+      }
+
+      final file = File(filePath);
 
       if (!await file.exists()) {
         print('CSV file does not exist');
+        setState(() {
+          session.isComplete = true;
+          session.results = {
+            'error': 'No data file found',
+            'total_windows_processed': 0,
+            'basal_metabolic_rate': 0,
+            'gait_cycles': 0,
+            'results': []
+          };
+        });
         return;
       }
 
@@ -340,6 +649,16 @@ class _SensorScreenState extends State<SensorScreen> {
 
       if (csvLines.length <= 1) {
         print("❌ CSV file contains no data.");
+        setState(() {
+          session.isComplete = true;
+          session.results = {
+            'error': 'No data recorded',
+            'total_windows_processed': 0,
+            'basal_metabolic_rate': 0,
+            'gait_cycles': 0,
+            'results': []
+          };
+        });
         return;
       }
 
@@ -354,139 +673,199 @@ class _SensorScreenState extends State<SensorScreen> {
       int batchSize = 200;
       int totalBatches = (dataRows.length / batchSize).ceil();
 
-      // Generate a unique session ID using timestamp and user email
-      final String sessionId =
-          '${DateTime.now().millisecondsSinceEpoch}_${userEmail.replaceAll('@', '_').replaceAll('.', '_')}';
+      for (int i = 0; i < dataRows.length; i += batchSize) {
+        List<String> batch =
+            dataRows.sublist(i, (i + batchSize).clamp(0, dataRows.length));
+        String batchCsv = "$header\n${batch.join("\n")}";
 
-      // Show progress dialog for uploads
-      if (mounted) {
-        final progressNotifier = ValueNotifier<double>(0.0);
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => ValueListenableBuilder<double>(
-            valueListenable: progressNotifier,
-            builder: (context, progress, _) {
-              return Dialog(
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                child: Container(
-                  constraints: BoxConstraints(maxWidth: 300),
-                  padding: EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 20,
-                        offset: Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Animated icon
-                      Container(
-                        padding: EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurple.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.cloud_upload,
-                          color: Colors.deepPurple,
-                          size: 32,
-                        ),
-                      ),
-                      SizedBox(height: 20),
-                      Text(
-                        'Uploading Session Data',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      SizedBox(height: 24),
-                      // Modern progress bar
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: LinearProgressIndicator(
-                          value: progress,
-                          backgroundColor: Colors.grey[200],
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Colors.deepPurple),
-                          minHeight: 8,
-                        ),
-                      ),
-                      SizedBox(height: 12),
-                      Text(
-                        'Uploading data... ${(progress * 100).toStringAsFixed(0)}%',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                          fontWeight: FontWeight.w500,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
+        final Map<String, dynamic> payload = {
+          "csv_data": batchCsv,
+          "user_email": userEmail,
+          "session_id": session.sessionId
+        };
+
+        final String lambdaEndpoint = ApiConfig.saveRawSensorData;
+
+        print(
+            "📤 Uploading batch ${i ~/ batchSize + 1}/$totalBatches with ${batch.length} rows");
+
+        final response = await http.post(
+          Uri.parse(lambdaEndpoint),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode(payload),
         );
 
-        for (int i = 0; i < dataRows.length; i += batchSize) {
-          List<String> batch =
-              dataRows.sublist(i, (i + batchSize).clamp(0, dataRows.length));
-          String batchCsv =
-              "$header\n${batch.join("\n")}"; // Add header to each batch
+        if (response.statusCode == 200) {
+          print("✅ Batch ${i ~/ batchSize + 1} uploaded successfully!");
 
-          // Include session_id in the payload
-          final Map<String, dynamic> payload = {
-            "csv_data": batchCsv,
-            "user_email": userEmail,
-            "session_id": sessionId
-          };
-
-          // AWS Lambda API Gateway endpoint
-          final String lambdaEndpoint = ApiConfig.saveRawSensorData;
-
+          // Update session progress
+          setState(() {
+            session.uploadProgress = (i ~/ batchSize + 1) / totalBatches;
+          });
+        } else {
           print(
-              "📤 Uploading batch ${i ~/ batchSize + 1}/$totalBatches with ${batch.length} rows");
-
-          // Send the structured JSON payload
-          final response = await http.post(
-            Uri.parse(lambdaEndpoint),
-            headers: {"Content-Type": "application/json"},
-            body: jsonEncode(payload),
-          );
-
-          if (response.statusCode == 200) {
-            print("✅ Batch ${i ~/ batchSize + 1} uploaded successfully!");
-
-            // Update progress
-            if (mounted) {
-              progressNotifier.value = (i ~/ batchSize + 1) / totalBatches;
-            }
-          } else {
-            print(
-                "❌ Failed to upload batch ${i ~/ batchSize + 1}: ${response.body}");
-            break; // Stop on failure
-          }
+              "❌ Failed to upload batch ${i ~/ batchSize + 1}: ${response.body}");
+          break;
         }
       }
 
-      // After all raw data is uploaded, trigger energy expenditure processing
-      await _processEnergyExpenditure(sessionId, userEmail);
+      // Update session to processing state
+      setState(() {
+        session.isProcessing = true;
+      });
+
+      // Process energy expenditure
+      final results =
+          await _processEnergyExpenditure(session.sessionId, userEmail);
+
+      // Update session as complete
+      setState(() {
+        session.isComplete = true;
+        session.isProcessing = false;
+        session.results = results;
+      });
+
+      // Delete the CSV file after successful upload and processing
+      try {
+        await file.delete();
+        print("✅ Deleted CSV file for session ${session.sessionId}");
+      } catch (e) {
+        print("⚠️ Error deleting CSV file: $e");
+      }
+
+      // Show results dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => Dialog(
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.9,
+                maxHeight: MediaQuery.of(context).size.height * 0.8,
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Title section with icon
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16.0),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.green),
+                          SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'Processing Complete',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Stats section
+                    Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(12.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Session Statistics',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Total Windows: ${results['total_windows_processed']}',
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                            Text(
+                              'Basal Rate: ${results['basal_metabolic_rate'].toStringAsFixed(2)} W',
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                            Text(
+                              'Gait Cycles: ${results['gait_cycles']}',
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    Text(
+                      'Energy Expenditure Results',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    SizedBox(height: 8),
+                    // Results list
+                    Flexible(
+                      child: Scrollbar(
+                        thickness: 8,
+                        radius: Radius.circular(4),
+                        thumbVisibility: true,
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: results['results'].length,
+                          itemBuilder: (context, index) {
+                            final result = results['results'][index];
+                            final timestamp =
+                                DateTime.parse(result['timestamp']);
+                            final isGaitCycle =
+                                (result['energyExpenditure'] as num) >
+                                    results['basal_metabolic_rate'];
+                            final ee = result['energyExpenditure'] as num;
+
+                            return EnergyExpenditureCard(
+                              timestamp: timestamp,
+                              energyExpenditure: ee.toDouble(),
+                              isGaitCycle: isGaitCycle,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    // Close button
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16.0),
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              enableDrag: true,
+                              isDismissible: true,
+                              builder: (context) => DraggableScrollableSheet(
+                                initialChildSize: 0.9,
+                                minChildSize: 0.5,
+                                maxChildSize: 0.95,
+                                expand: false,
+                                builder: (context, scrollController) =>
+                                    FeedbackBottomDrawer(
+                                        sessionId: session.sessionId),
+                              ),
+                            );
+                          },
+                          child: Text('Close'),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
     } catch (e) {
       print("⚠️ Error uploading CSV: $e");
       if (mounted) {
-        Navigator.of(context).pop(); // Remove progress dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error uploading data: $e'),
@@ -497,100 +876,17 @@ class _SensorScreenState extends State<SensorScreen> {
     }
   }
 
-  Future<void> _processEnergyExpenditure(
+  Future<Map<String, dynamic>> _processEnergyExpenditure(
       String sessionId, String userEmail) async {
     try {
       print(
           "🔄 Starting energy expenditure processing for session: $sessionId");
-
-      // Show processing progress dialog
-      if (mounted) {
-        Navigator.of(context).pop(); // Remove upload progress dialog
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => StatefulBuilder(
-            builder: (context, setState) {
-              return Dialog(
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                child: Container(
-                  constraints: BoxConstraints(maxWidth: 300),
-                  padding: EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 20,
-                        offset: Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Animated icon
-                      Container(
-                        padding: EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurple.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.analytics,
-                          color: Colors.deepPurple,
-                          size: 32,
-                        ),
-                      ),
-                      SizedBox(height: 20),
-                      Text(
-                        'Processing Session Data',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      SizedBox(height: 24),
-                      // Modern indeterminate progress bar
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: LinearProgressIndicator(
-                          value: null,
-                          backgroundColor: Colors.grey[200],
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Colors.deepPurple),
-                          minHeight: 8,
-                        ),
-                      ),
-                      SizedBox(height: 12),
-                      Text(
-                        'Calculating energy expenditure...',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                          fontWeight: FontWeight.w500,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-      }
 
       final Map<String, dynamic> payload = {
         "session_id": sessionId,
         "user_email": userEmail
       };
 
-      // Get the Fargate service URL from the environment
       final String fargateEndpoint = ApiConfig.energyExpenditureServiceUrl;
 
       final response = await http.post(
@@ -598,11 +894,6 @@ class _SensorScreenState extends State<SensorScreen> {
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(payload),
       );
-
-      // Close loading dialog
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
 
       if (response.statusCode == 200) {
         final responseData = jsonDecode(response.body);
@@ -617,150 +908,19 @@ class _SensorScreenState extends State<SensorScreen> {
             .where((result) => (result['energyExpenditure'] as num) > basalRate)
             .length;
 
-        // Show results in a dialog with a scrollable list
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (context) => Dialog(
-              child: Container(
-                constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.9,
-                  maxHeight: MediaQuery.of(context).size.height * 0.8,
-                ),
-                child: Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Title section with icon
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16.0),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.check_circle, color: Colors.green),
-                            SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                'Processing Complete',
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Stats section
-                      Card(
-                        child: Padding(
-                          padding: EdgeInsets.all(12.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Session Statistics',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Total Windows: ${responseData['total_windows_processed']}',
-                                style: Theme.of(context).textTheme.bodyLarge,
-                              ),
-                              Text(
-                                'Basal Rate: ${basalRate.toStringAsFixed(2)} W',
-                                style: Theme.of(context).textTheme.bodyLarge,
-                              ),
-                              Text(
-                                'Gait Cycles: $gaitCycles',
-                                style: Theme.of(context).textTheme.bodyLarge,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        'Energy Expenditure Results',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      SizedBox(height: 8),
-                      // Results list
-                      Flexible(
-                        child: Scrollbar(
-                          thickness: 8,
-                          radius: Radius.circular(4),
-                          thumbVisibility: true,
-                          child: ListView.builder(
-                            shrinkWrap: true,
-                            itemCount: responseData['results'].length,
-                            itemBuilder: (context, index) {
-                              final result = responseData['results'][index];
-                              final timestamp =
-                                  DateTime.parse(result['timestamp']);
-                              final isGaitCycle =
-                                  (result['energyExpenditure'] as num) >
-                                      basalRate;
-                              final ee = result['energyExpenditure'] as num;
-
-                              return EnergyExpenditureCard(
-                                timestamp: timestamp,
-                                energyExpenditure: ee.toDouble(),
-                                isGaitCycle: isGaitCycle,
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      // Close button
-                      Padding(
-                        padding: const EdgeInsets.only(top: 16.0),
-                        child: Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: () {
-                              Navigator.of(context).pop();
-                              showModalBottomSheet(
-                                context: context,
-                                isScrollControlled: true,
-                                backgroundColor: Colors.transparent,
-                                enableDrag: true,
-                                isDismissible: true,
-                                builder: (context) => DraggableScrollableSheet(
-                                  initialChildSize: 0.9,
-                                  minChildSize: 0.5,
-                                  maxChildSize: 0.95,
-                                  expand: false,
-                                  builder: (context, scrollController) =>
-                                      FeedbackBottomDrawer(
-                                          sessionId: sessionId),
-                                ),
-                              );
-                            },
-                            child: Text('Close'),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
-        }
+        return {
+          'results': responseData['results'],
+          'basal_metabolic_rate': basalRate,
+          'gait_cycles': gaitCycles,
+          'total_windows_processed': responseData['results'].length,
+        };
       } else {
         print("❌ Failed to process energy expenditure: ${response.body}");
         throw Exception('Failed to process energy expenditure');
       }
     } catch (e) {
       print("⚠️ Error processing energy expenditure: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error processing energy expenditure data'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      throw e;
     }
   }
 
@@ -768,6 +928,7 @@ class _SensorScreenState extends State<SensorScreen> {
       UserProfileProvider profileProvider) {
     List<Widget> content = [];
 
+    // Add current tracking session if active
     if (_isTracking) {
       content.add(
         Card(
@@ -914,93 +1075,29 @@ class _SensorScreenState extends State<SensorScreen> {
           ),
         ),
       );
-      content.add(SizedBox(height: 16));
     }
-    if (_csvData.isNotEmpty) {
-      content.add(Text(
-        'Captured Data',
-        style: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-          color: textGray,
-        ),
-      ));
-      content.add(SizedBox(height: 8));
+
+    // Add all session status widgets
+    for (var session in _sessions) {
       content.add(
-        Card(
-          elevation: 2,
-          color: Colors.grey.shade100,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: ListView.separated(
-            padding: EdgeInsets.all(16),
-            shrinkWrap: true,
-            physics: NeverScrollableScrollPhysics(),
-            itemCount: _csvData.length,
-            separatorBuilder: (context, index) => Divider(
-              height: 1,
-              color: Colors.grey.shade300,
-            ),
-            itemBuilder: (context, index) {
-              final row = _csvData[index];
-              return Padding(
-                padding: EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  row.join(', '),
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    color: index == 0
-                        ? Colors.grey.shade800
-                        : Colors.grey.shade600,
-                    fontWeight:
-                        index == 0 ? FontWeight.bold : FontWeight.normal,
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      );
-    } else if (!_isTracking) {
-      content.add(
-        SizedBox(
-          height: MediaQuery.of(context).size.height * 0.25,
-        ),
-      );
-      content.add(
-        Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.sensors_off,
-                size: 64,
-                color: Colors.grey.shade400,
-              ),
-              SizedBox(height: 16),
-              Text(
-                'No Sensor Data',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Press the Start button to begin recording',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey.shade500,
-                ),
-              ),
-            ],
-          ),
+        SessionStatusWidget(
+          session: session,
+          onDismiss: session.isComplete
+              ? () {
+                  setState(() {
+                    _sessions.remove(session);
+                  });
+                }
+              : null,
         ),
       );
     }
+
+    // If no content, show empty state
+    if (content.isEmpty) {
+      return const EmptyStateWidget();
+    }
+
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: content,

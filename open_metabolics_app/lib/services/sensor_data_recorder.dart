@@ -9,16 +9,18 @@ class SensorDataRecorder {
   late File _file;
   late IOSink _sink;
   bool _isRecording = false;
+  String? _currentSessionId;
 
   // Buffer to hold rows of data
   List<List<double>> _dataBuffer = [];
 
   // Initialize and create a CSV file (overwrite mode)
-  Future<void> _initializeFile() async {
+  Future<void> _initializeFile(String sessionId) async {
     final directory = await getApplicationDocumentsDirectory();
-    final path = p.join(directory.path, 'sensor_data.csv');
+    final path = p.join(directory.path, 'sensor_data_$sessionId.csv');
 
     _file = File(path);
+    _currentSessionId = sessionId;
 
     // Open the file in write mode to overwrite any existing content
     _sink = _file.openWrite(mode: FileMode.write);
@@ -30,16 +32,16 @@ class SensorDataRecorder {
   }
 
   // Start recording data (reset file, buffer, and state)
-  Future<void> startRecording() async {
+  Future<void> startRecording(String sessionId) async {
     // Ensure any previous recording session is stopped
     await stopRecording();
 
     // Reinitialize the file and clear buffers
-    await _initializeFile();
+    await _initializeFile(sessionId);
     _dataBuffer.clear(); // Clear any previous buffered data
     _isRecording = true;
 
-    print('Recording started. CSV file reset.');
+    print('Recording started. CSV file reset for session $sessionId');
   }
 
   // Stop recording data
@@ -51,6 +53,13 @@ class SensorDataRecorder {
 
       print('CSV file saved successfully at: ${_file.path}');
     }
+  }
+
+  // Get the current session's file path
+  Future<String?> getCurrentSessionFilePath() async {
+    if (_currentSessionId == null) return null;
+    final directory = await getApplicationDocumentsDirectory();
+    return p.join(directory.path, 'sensor_data_$_currentSessionId.csv');
   }
 
   // Buffer data instead of saving it immediately
