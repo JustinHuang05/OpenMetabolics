@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.openmetabolics.app">
     <!-- Add permissions for sensors -->
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -7,7 +8,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     
     <application
-        android:label="open_metabolics_app"
+        android:label="Open Metabolics"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:networkSecurityConfig="@xml/network_security_config">

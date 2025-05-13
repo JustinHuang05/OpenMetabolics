@@ -1,6 +1,8 @@
 package com.openmetabolics.app
 
 import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import io.flutter.embedding.android.FlutterActivity
@@ -8,54 +10,55 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.openmetabolics.app/sensor_recording"
+    private val CHANNEL = "sensor_channel"
+    private var channel: MethodChannel? = null
     private var sensorService: SensorRecordingService? = null
-    private var methodChannel: MethodChannel? = null
+    private var isBound = false
 
     private val connection =
             object : ServiceConnection {
                 override fun onServiceConnected(className: ComponentName, service: IBinder) {
                     val binder = service as SensorRecordingService.LocalBinder
                     sensorService = binder.getService()
+                    isBound = true
                 }
 
                 override fun onServiceDisconnected(arg0: ComponentName) {
-                    sensorService = null
+                    isBound = false
                 }
             }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-        methodChannel?.setMethodCallHandler { call, result ->
+        // Initialize the method channel
+        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+
+        // Set up method call handler
+        channel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "startSensors" -> {
                     val sessionId = call.argument<String>("sessionId")
-                    val samplingRate = call.argument<Int>("samplingRate") ?: 50
-
                     if (sessionId != null) {
-                        SensorRecordingService.startService(this, sessionId, samplingRate)
-                        result.success(true)
+                        SensorRecordingService.startService(this, sessionId)
+                        Intent(this, SensorRecordingService::class.java).also { intent ->
+                            bindService(intent, connection, Context.BIND_AUTO_CREATE)
+                        }
+                        result.success(null)
                     } else {
-                        result.error("INVALID_ARGUMENTS", "Session ID is required", null)
+                        result.error("INVALID_SESSION", "Session ID is required", null)
                     }
                 }
                 "stopSensors" -> {
-                    val success = SensorRecordingService.stopService(this)
-                    result.success(success)
-                }
-                "setSensorService" -> {
-                    val service = call.argument<SensorRecordingService>("service")
-                    if (service != null) {
-                        sensorService = service
-                        result.success(true)
-                    } else {
-                        result.error("INVALID_ARGUMENTS", "Service is required", null)
+                    if (isBound) {
+                        unbindService(connection)
+                        isBound = false
                     }
+                    SensorRecordingService.stopService(this)
+                    result.success(null)
                 }
                 "getAccelerometerData" -> {
-                    if (sensorService != null) {
+                    if (isBound && sensorService != null) {
                         val data = sensorService!!.getSensorData()
                         result.success(data)
                     } else {
@@ -63,7 +66,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "getGyroscopeData" -> {
-                    if (sensorService != null) {
+                    if (isBound && sensorService != null) {
                         val data = sensorService!!.getSensorData().subList(3, 6)
                         result.success(data)
                     } else {
@@ -71,7 +74,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "getCurrentSessionFilePath" -> {
-                    if (sensorService != null) {
+                    if (isBound && sensorService != null) {
                         val path = sensorService!!.getCurrentSessionFilePath()
                         result.success(path)
                     } else {
@@ -86,7 +89,10 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        methodChannel?.setMethodCallHandler(null)
         super.onDestroy()
+        if (isBound) {
+            unbindService(connection)
+            isBound = false
+        }
     }
 }

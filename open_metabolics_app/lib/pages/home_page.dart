@@ -562,7 +562,7 @@ class _SensorScreenState extends State<SensorScreen> {
 
     // Start sensors after recording is set up
     try {
-      await SensorChannel.startSensors(sessionId, _samplesPerSecond);
+      await SensorChannel.startSensors(sessionId);
     } catch (e) {
       print('Error starting sensors: $e');
       ScaffoldMessenger.of(context).showSnackBar(

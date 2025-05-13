@@ -5,10 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -16,39 +14,18 @@ import android.hardware.SensorManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
-import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import kotlin.math.abs
 import kotlin.math.sqrt
 
 class SensorRecordingService : Service(), SensorEventListener {
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
     private var gyroscope: Sensor? = null
-    private var wakeLock: PowerManager.WakeLock? = null
-    private var stopLatch: CountDownLatch? = null
-    private var methodChannel: io.flutter.plugin.common.MethodChannel? = null
-    private var isRecording = false
-    private var sessionId: String? = null
-    private var targetInterval: Long = 20000000 // 20ms in nanoseconds
-    private var lastSampleTime: Long = 0
-    private var sampleCount: Int = 0
-    private var lastLogTime: Long = 0
-    private var sessionStartTime: Long = 0
-    private var totalSamples: Int = 0
-    private var totalTime: Long = 0
-    private var lastAdjustmentTime: Long = 0
-    private var currentInterval: Long = 20000000 // Start with 20ms
-    private val adjustmentThreshold = 0.1 // 10% deviation threshold
-    private val minInterval = 15000000L // 15ms minimum
-    private val maxInterval = 25000000L // 25ms maximum
-    private val adjustmentInterval = 1000000000L // Check every second
 
     // Variables to store the latest sensor data
     private var accelerometerData: FloatArray = FloatArray(3)
@@ -57,39 +34,47 @@ class SensorRecordingService : Service(), SensorEventListener {
     // CSV writing variables
     private var csvFile: File? = null
     private var csvWriter: FileWriter? = null
+    private var sessionId: String? = null
+    private var startTime: Long = 0
     private val dataBuffer = mutableListOf<String>()
     private val bufferSize = 200 // Save every 200 readings
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
 
-    // Sampling rate tracking
-    private var lastGyroTimestamp: Long = 0
-    private var samplingRate: Int = 50 // Default sampling rate
+    // Monitoring variables
+    private var sampleCount: Long = 0
+    private var lastReportTime: Long = 0
+    private val reportInterval: Long = 1000 // Report every second
+    private var lastBufferSaveTime: Long = 0
+    private var totalSamples: Long = 0
 
     // Binder given to clients
     private val binder = LocalBinder()
 
-    private var nextSampleTime: Long = 0
-    private var timer: Timer? = null
-    private var timerTask: TimerTask? = null
-    private val timerLock = Object()
-
-    private var startTime: Long = 0 // Add missing property
+    // Add these as class variables
+    private val stringBuilder = StringBuilder(256) // Pre-allocate buffer for CSV rows
+    private val timestampFormat = java.text.DecimalFormat("0.000")
+    private val valueFormat = java.text.DecimalFormat("0.00")
+    private var lastGyroTimestamp: Long = 0
+    private var lastAccelTimestamp: Long = 0
+    private val gyroBuffer = FloatArray(3)
+    private val accelBuffer = FloatArray(3)
 
     inner class LocalBinder : Binder() {
         fun getService(): SensorRecordingService = this@SensorRecordingService
     }
 
+    // Channel for method calls from Flutter
+    private var channel: MethodChannel? = null
+
     companion object {
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "sensor_recording_channel"
         private const val CHANNEL_NAME = "Sensor Recording"
-        private const val WAKE_LOCK_TAG = "OpenMetabolics:SensorRecording"
 
-        fun startService(context: Context, sessionId: String, samplingRate: Int) {
+        fun startService(context: Context, sessionId: String) {
             val intent =
                     Intent(context, SensorRecordingService::class.java).apply {
                         putExtra("sessionId", sessionId)
-                        putExtra("samplingRate", samplingRate)
                     }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -98,42 +83,14 @@ class SensorRecordingService : Service(), SensorEventListener {
             }
         }
 
-        fun stopService(context: Context): Boolean {
+        fun stopService(context: Context) {
             val intent = Intent(context, SensorRecordingService::class.java)
-            val serviceConnection =
-                    object : ServiceConnection {
-                        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-                            val binder = service as? SensorRecordingService.LocalBinder
-                            binder?.getService()?.waitForCompletion()
-                        }
-
-                        override fun onServiceDisconnected(name: ComponentName?) {}
-                    }
-
-            try {
-                context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
-                context.stopService(intent)
-                return true
-            } catch (e: Exception) {
-                e.printStackTrace()
-                return false
-            }
-        }
-    }
-
-    private fun waitForCompletion(): Boolean {
-        stopLatch = CountDownLatch(1)
-        try {
-            // Wait up to 5 seconds for the service to finish writing
-            return stopLatch?.await(5, TimeUnit.SECONDS) ?: true
-        } catch (e: InterruptedException) {
-            return false
+            context.stopService(intent)
         }
     }
 
     override fun onCreate() {
         super.onCreate()
-        android.util.Log.d("SensorRecording", "Service onCreate")
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
 
@@ -142,29 +99,18 @@ class SensorRecordingService : Service(), SensorEventListener {
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 
-        // Acquire wake lock with more aggressive settings
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock =
-                powerManager.newWakeLock(
-                                PowerManager.PARTIAL_WAKE_LOCK or PowerManager.ON_AFTER_RELEASE,
-                                WAKE_LOCK_TAG
-                        )
-                        .apply {
-                            setReferenceCounted(false)
-                            acquire(10 * 60 * 1000L /*10 minutes*/)
-                        }
-
-        // Start sensor listeners
+        // Start sensor listeners at 50Hz
         startSensors()
+
+        // Initialize monitoring variables
+        lastReportTime = System.currentTimeMillis()
+        lastBufferSaveTime = System.currentTimeMillis()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        android.util.Log.d("SensorRecording", "Service onStartCommand")
         intent?.let {
             sessionId = it.getStringExtra("sessionId")
-            samplingRate = it.getIntExtra("samplingRate", 50)
             startTime = System.currentTimeMillis()
-            sessionStartTime = startTime
             initializeCSV()
         }
         return START_STICKY
@@ -213,178 +159,11 @@ class SensorRecordingService : Service(), SensorEventListener {
     }
 
     private fun startSensors() {
-        isRecording = true
-        sessionStartTime = System.nanoTime()
-        lastSampleTime = sessionStartTime
-        nextSampleTime = sessionStartTime
-        lastAdjustmentTime = sessionStartTime
-        lastLogTime = sessionStartTime
-        startTime = System.currentTimeMillis() // Initialize startTime
-
-        // Register sensors with fastest possible rate
         accelerometer?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST)
-        }
-        gyroscope?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
 
-        // Start timer for precise timing
-        timer = Timer()
-        timerTask =
-                object : TimerTask() {
-                    override fun run() {
-                        synchronized(timerLock) {
-                            val currentTime = System.nanoTime()
-                            if (currentTime >= nextSampleTime) {
-                                // Process sensor data
-                                processSensorData()
-                                // Schedule next sample
-                                nextSampleTime += currentInterval
-                            }
-                        }
-                    }
-                }
-        timer?.scheduleAtFixedRate(
-                timerTask,
-                0,
-                1
-        ) // Run as fast as possible, we'll control timing manually
-    }
-
-    private fun processSensorData() {
-        if (!isRecording) return
-
-        val currentTime = System.nanoTime()
-
-        // Calculate actual sampling rate
-        val timeSinceLastSample = currentTime - lastSampleTime
-        val currentRate =
-                if (timeSinceLastSample > 0) {
-                    1_000_000_000.0 / timeSinceLastSample
-                } else {
-                    0.0
-                }
-
-        // Update statistics
-        sampleCount++
-        totalSamples++
-        totalTime += timeSinceLastSample
-
-        // Calculate L2 norm for gyroscope data
-        val l2Norm =
-                sqrt(
-                        gyroscopeData[0] * gyroscopeData[0] +
-                                gyroscopeData[1] * gyroscopeData[1] +
-                                gyroscopeData[2] * gyroscopeData[2]
-                )
-
-        // Create CSV row
-        val timestamp = System.currentTimeMillis() / 1000.0
-        val row =
-                String.format(
-                        "%.3f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,0\n",
-                        timestamp,
-                        accelerometerData[0],
-                        accelerometerData[1],
-                        accelerometerData[2],
-                        gyroscopeData[0],
-                        gyroscopeData[1],
-                        gyroscopeData[2],
-                        l2Norm
-                )
-
-        dataBuffer.add(row)
-
-        // Save data if buffer is full
-        if (dataBuffer.size >= bufferSize) {
-            saveBufferedData()
-        }
-
-        // Check if it's time to adjust the sampling rate
-        if (currentTime - lastAdjustmentTime >= adjustmentInterval) {
-            val averageRate =
-                    if (totalTime > 0) {
-                        totalSamples * 1_000_000_000.0 / totalTime
-                    } else {
-                        0.0
-                    }
-
-            // Calculate adjustment needed
-            val rateError = (averageRate - 50.0) / 50.0 // Normalized error
-
-            if (abs(rateError) > adjustmentThreshold) {
-                // Adjust the interval to compensate
-                val adjustment = (currentInterval * rateError * 0.1).toLong() // 10% adjustment
-                currentInterval = (currentInterval - adjustment).coerceIn(minInterval, maxInterval)
-
-                // Log the adjustment
-                android.util.Log.d(
-                        "SensorRecording",
-                        "Adjusting sampling rate: " +
-                                "Current: ${String.format("%.2f", averageRate)} Hz, " +
-                                "Target: 50.00 Hz, " +
-                                "New interval: ${currentInterval / 1_000_000.0} ms"
-                )
-            }
-
-            // Reset statistics for next adjustment period
-            sampleCount = 0
-            totalSamples = 0
-            totalTime = 0
-            lastAdjustmentTime = currentTime
-        }
-
-        // Log every 5 seconds
-        if (currentTime - lastLogTime >= 5_000_000_000) {
-            val rate =
-                    if (currentTime - lastLogTime > 0) {
-                        sampleCount * 1_000_000_000.0 / (currentTime - lastLogTime)
-                    } else {
-                        0.0
-                    }
-
-            val totalRate =
-                    if (currentTime - sessionStartTime > 0) {
-                        totalSamples * 1_000_000_000.0 / (currentTime - sessionStartTime)
-                    } else {
-                        0.0
-                    }
-
-            // Send detailed stats to Flutter
-            methodChannel?.invokeMethod(
-                    "onSamplingStatsUpdate",
-                    mapOf(
-                            "currentRate" to rate,
-                            "averageRate" to totalRate,
-                            "totalSamples" to totalSamples,
-                            "timeElapsed" to (currentTime - sessionStartTime) / 1_000_000_000.0,
-                            "wakeLockActive" to (wakeLock?.isHeld ?: false),
-                            "targetInterval" to currentInterval / 1_000_000.0
-                    )
-            )
-
-            sampleCount = 0
-            lastLogTime = currentTime
-        }
-
-        // Send real-time rate to Flutter
-        methodChannel?.invokeMethod(
-                "onSamplingRateUpdate",
-                mapOf("rate" to currentRate, "totalSamples" to totalSamples)
-        )
-
-        lastSampleTime = currentTime
-    }
-
-    private fun saveBufferedData() {
-        try {
-            dataBuffer.forEach { row -> csvWriter?.write(row) }
-            csvWriter?.flush()
-            dataBuffer.clear()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        gyroscope?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
     }
 
     override fun onBind(intent: Intent?): IBinder {
@@ -392,28 +171,87 @@ class SensorRecordingService : Service(), SensorEventListener {
     }
 
     override fun onDestroy() {
-        isRecording = false
-        timerTask?.cancel()
-        timer?.cancel()
-        timer = null
-        timerTask = null
-        android.util.Log.d("SensorRecording", "Service onDestroy")
         super.onDestroy()
         sensorManager.unregisterListener(this)
         saveBufferedData()
         csvWriter?.close()
-        wakeLock?.release()
-        stopLatch?.countDown()
     }
 
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {
-                System.arraycopy(event.values, 0, accelerometerData, 0, 3)
+                System.arraycopy(event.values, 0, accelBuffer, 0, 3)
+                lastAccelTimestamp = event.timestamp
             }
             Sensor.TYPE_GYROSCOPE -> {
-                System.arraycopy(event.values, 0, gyroscopeData, 0, 3)
+                System.arraycopy(event.values, 0, gyroBuffer, 0, 3)
+                lastGyroTimestamp = event.timestamp
+
+                // Calculate L2 norm for gyroscope data
+                val l2Norm =
+                        sqrt(
+                                gyroBuffer[0] * gyroBuffer[0] +
+                                        gyroBuffer[1] * gyroBuffer[1] +
+                                        gyroBuffer[2] * gyroBuffer[2]
+                        )
+
+                // Create CSV row using StringBuilder
+                stringBuilder.setLength(0) // Clear the buffer
+                stringBuilder
+                        .append(timestampFormat.format(System.currentTimeMillis() / 1000.0))
+                        .append(',')
+                        .append(valueFormat.format(accelBuffer[0]))
+                        .append(',')
+                        .append(valueFormat.format(accelBuffer[1]))
+                        .append(',')
+                        .append(valueFormat.format(accelBuffer[2]))
+                        .append(',')
+                        .append(valueFormat.format(gyroBuffer[0]))
+                        .append(',')
+                        .append(valueFormat.format(gyroBuffer[1]))
+                        .append(',')
+                        .append(valueFormat.format(gyroBuffer[2]))
+                        .append(',')
+                        .append(valueFormat.format(l2Norm))
+                        .append(",0\n")
+
+                dataBuffer.add(stringBuilder.toString())
+                sampleCount++
+                totalSamples++
+
+                // Save data if buffer is full
+                if (dataBuffer.size >= bufferSize) {
+                    val now = System.currentTimeMillis()
+                    val timeSinceLastSave = now - lastBufferSaveTime
+                    println(
+                            "Buffer full - Time since last save: ${timeSinceLastSave}ms, Total samples: $totalSamples"
+                    )
+                    saveBufferedData()
+                    lastBufferSaveTime = now
+                }
+
+                // Report sampling rate every second
+                val now = System.currentTimeMillis()
+                if (now - lastReportTime >= reportInterval) {
+                    val actualRate = sampleCount * 1000.0 / (now - lastReportTime)
+                    println("Current sampling rate: $actualRate Hz (Target: 50Hz)")
+                    sampleCount = 0
+                    lastReportTime = now
+                }
             }
+        }
+    }
+
+    private fun saveBufferedData() {
+        try {
+            val writer = csvWriter ?: return
+            for (row in dataBuffer) {
+                writer.write(row)
+            }
+            writer.flush()
+            dataBuffer.clear()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
