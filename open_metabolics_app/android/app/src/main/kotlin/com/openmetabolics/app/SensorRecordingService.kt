@@ -15,9 +15,9 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileWriter
+import java.text.DecimalFormat
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.sqrt
@@ -52,15 +52,10 @@ class SensorRecordingService : Service(), SensorEventListener {
 
     // Add these as class variables
     private val stringBuilder = StringBuilder(256) // Pre-allocate buffer for CSV rows
-    private val timestampFormat = java.text.DecimalFormat("0.000")
-    private val valueFormat = java.text.DecimalFormat("0.00")
+    private val timestampFormat = DecimalFormat("0.000")
+    private val valueFormat = DecimalFormat("0.00")
     private var lastGyroTimestamp: Long = 0
     private var lastAccelTimestamp: Long = 0
-    private val gyroBuffer = FloatArray(3)
-    private val accelBuffer = FloatArray(3)
-
-    // Channel for method calls from Flutter
-    private var channel: MethodChannel? = null
 
     inner class LocalBinder : Binder() {
         fun getService(): SensorRecordingService = this@SensorRecordingService
@@ -188,31 +183,32 @@ class SensorRecordingService : Service(), SensorEventListener {
                 lastGyroTimestamp = event.timestamp
 
                 // Calculate L2 norm for gyroscope data
-                val l2Norm = sqrt(
-                    gyroscopeData[0] * gyroscopeData[0] +
-                    gyroscopeData[1] * gyroscopeData[1] +
-                    gyroscopeData[2] * gyroscopeData[2]
-                )
+                val l2Norm =
+                        sqrt(
+                                gyroscopeData[0] * gyroscopeData[0] +
+                                        gyroscopeData[1] * gyroscopeData[1] +
+                                        gyroscopeData[2] * gyroscopeData[2]
+                        )
 
                 // Create CSV row using StringBuilder
                 stringBuilder.setLength(0) // Clear the buffer
                 stringBuilder
-                    .append(timestampFormat.format(System.currentTimeMillis() / 1000.0))
-                    .append(',')
-                    .append(valueFormat.format(accelerometerData[0]))
-                    .append(',')
-                    .append(valueFormat.format(accelerometerData[1]))
-                    .append(',')
-                    .append(valueFormat.format(accelerometerData[2]))
-                    .append(',')
-                    .append(valueFormat.format(gyroscopeData[0]))
-                    .append(',')
-                    .append(valueFormat.format(gyroscopeData[1]))
-                    .append(',')
-                    .append(valueFormat.format(gyroscopeData[2]))
-                    .append(',')
-                    .append(valueFormat.format(l2Norm))
-                    .append(",0\n")
+                        .append(timestampFormat.format(System.currentTimeMillis() / 1000.0))
+                        .append(',')
+                        .append(valueFormat.format(accelerometerData[0]))
+                        .append(',')
+                        .append(valueFormat.format(accelerometerData[1]))
+                        .append(',')
+                        .append(valueFormat.format(accelerometerData[2]))
+                        .append(',')
+                        .append(valueFormat.format(gyroscopeData[0]))
+                        .append(',')
+                        .append(valueFormat.format(gyroscopeData[1]))
+                        .append(',')
+                        .append(valueFormat.format(gyroscopeData[2]))
+                        .append(',')
+                        .append(valueFormat.format(l2Norm))
+                        .append(",0\n")
 
                 dataBuffer.add(stringBuilder.toString())
                 sampleCount++
@@ -222,7 +218,9 @@ class SensorRecordingService : Service(), SensorEventListener {
                 if (dataBuffer.size >= bufferSize) {
                     val now = System.currentTimeMillis()
                     val timeSinceLastSave = now - lastBufferSaveTime
-                    println("Buffer full - Time since last save: ${timeSinceLastSave}ms, Total samples: $totalSamples")
+                    println(
+                            "Buffer full - Time since last save: ${timeSinceLastSave}ms, Total samples: $totalSamples"
+                    )
                     saveBufferedData()
                     lastBufferSaveTime = now
                 }
