@@ -28,7 +28,13 @@ class SessionStatus {
   double uploadProgress;
   bool isProcessing;
   bool isComplete;
+  bool isWaitingForNetwork;
   Map<String, dynamic>? results;
+  int lastUploadedBatchIndex; // Track which batch was last uploaded
+  List<String>? csvLines; // Store CSV data for resuming uploads
+  bool
+      isProcessingEnergyExpenditure; // Track if we're in the energy expenditure phase
+  String? filePath; // Add file path to track which file belongs to this session
 
   SessionStatus({
     required this.sessionId,
@@ -37,7 +43,12 @@ class SessionStatus {
     this.uploadProgress = 0.0,
     this.isProcessing = false,
     this.isComplete = false,
+    this.isWaitingForNetwork = false,
     this.results,
+    this.lastUploadedBatchIndex = 0,
+    this.csvLines,
+    this.isProcessingEnergyExpenditure = false,
+    this.filePath,
   });
 }
 
@@ -141,15 +152,13 @@ class SessionStatusWidget extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      session.isProcessing
-                          ? 'Processing data...'
-                          : 'Uploading: ${(session.uploadProgress * 100).toStringAsFixed(0)}%',
+                      _getStatusText(session),
                       style: TextStyle(
                         color: Colors.grey[600],
                         fontSize: 14,
                       ),
                     ),
-                    if (session.isProcessing)
+                    if (session.isProcessing || session.isWaitingForNetwork)
                       SizedBox(
                         width: 16,
                         height: 16,
@@ -222,6 +231,9 @@ class SessionStatusWidget extends StatelessWidget {
     if (session.isComplete) {
       return session.results?['error'] != null ? Colors.red : Colors.green;
     }
+    if (session.isWaitingForNetwork) {
+      return Colors.orange;
+    }
     return session.isProcessing ? Colors.orange : Colors.blue;
   }
 
@@ -230,6 +242,9 @@ class SessionStatusWidget extends StatelessWidget {
       return session.results?['error'] != null
           ? Icons.error_outline
           : Icons.check_circle;
+    }
+    if (session.isWaitingForNetwork) {
+      return Icons.wifi_off;
     }
     return session.isProcessing ? Icons.sync : Icons.cloud_upload;
   }
@@ -240,7 +255,20 @@ class SessionStatusWidget extends StatelessWidget {
           ? 'Upload Failed'
           : 'Session Complete';
     }
+    if (session.isWaitingForNetwork) {
+      return 'Waiting for Network';
+    }
     return session.isProcessing ? 'Processing' : 'Uploading';
+  }
+
+  String _getStatusText(SessionStatus session) {
+    if (session.isWaitingForNetwork) {
+      return 'Waiting for network connection...';
+    }
+    if (session.isProcessing) {
+      return 'Processing data...';
+    }
+    return 'Uploading: ${(session.uploadProgress * 100).toStringAsFixed(0)}%';
   }
 }
 
@@ -309,6 +337,7 @@ class _SensorScreenState extends State<SensorScreen> {
 
   StreamSubscription? _accelerometerSubscription;
   StreamSubscription? _gyroscopeSubscription;
+  StreamSubscription? _connectivitySubscription;
   DateTime? _startTime; // Variable to hold the start time
 
   // List to store CSV data for displaying in ListView
@@ -322,6 +351,7 @@ class _SensorScreenState extends State<SensorScreen> {
   String? _errorMessage;
 
   int _selectedIndex = 0;
+  bool _hasNetworkConnection = true;
 
   static const List<String> _titles = [
     'Open Metabolics',
@@ -332,10 +362,99 @@ class _SensorScreenState extends State<SensorScreen> {
   @override
   void initState() {
     super.initState();
+    // Initialize connectivity listener
+    _initConnectivity();
     // Fetch profile when the page loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<UserProfileProvider>().fetchUserProfile();
     });
+  }
+
+  Future<void> _initConnectivity() async {
+    try {
+      final result = await InternetAddress.lookup('google.com');
+      _hasNetworkConnection =
+          result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } on SocketException catch (_) {
+      _hasNetworkConnection = false;
+    }
+
+    // Listen for connectivity changes
+    _connectivitySubscription =
+        Stream.periodic(Duration(seconds: 5)).listen((_) async {
+      try {
+        final result = await InternetAddress.lookup('google.com');
+        final hasConnection =
+            result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+
+        if (hasConnection != _hasNetworkConnection) {
+          setState(() {
+            _hasNetworkConnection = hasConnection;
+          });
+
+          if (hasConnection) {
+            // Resume any waiting uploads
+            _resumeWaitingUploads();
+          } else {
+            // Pause any active uploads
+            _pauseActiveUploads();
+          }
+        }
+      } on SocketException catch (_) {
+        if (_hasNetworkConnection) {
+          setState(() {
+            _hasNetworkConnection = false;
+          });
+          _pauseActiveUploads();
+        }
+      }
+    });
+  }
+
+  void _pauseActiveUploads() {
+    setState(() {
+      for (var session in _sessions) {
+        if (!session.isComplete) {
+          session.isWaitingForNetwork = true;
+          session.isProcessing = false;
+          session.isProcessingEnergyExpenditure = false;
+        }
+      }
+    });
+  }
+
+  void _resumeWaitingUploads() {
+    for (var session in _sessions) {
+      if (session.isWaitingForNetwork) {
+        session.isWaitingForNetwork = false;
+        if (session.isProcessingEnergyExpenditure) {
+          // If we were processing energy expenditure, retry that
+          _processEnergyExpenditure(
+                  session.sessionId,
+                  Provider.of<AuthService>(context, listen: false)
+                      .getCurrentUserEmail() as String)
+              .then((results) {
+            setState(() {
+              session.isComplete = true;
+              session.isProcessing = false;
+              session.isProcessingEnergyExpenditure = false;
+              session.results = results;
+            });
+          }).catchError((error) {
+            if (error.toString().contains('network')) {
+              setState(() {
+                session.isWaitingForNetwork = true;
+                session.isProcessing = false;
+                session.isProcessingEnergyExpenditure = false;
+              });
+            }
+          });
+        } else {
+          // Otherwise continue with the upload
+          _uploadCSVToServer(session);
+        }
+      }
+    }
   }
 
   Future<void> _fetchUserProfile() async {
@@ -384,6 +503,7 @@ class _SensorScreenState extends State<SensorScreen> {
     // Cancel any active subscriptions when the widget is disposed
     _accelerometerSubscription?.cancel();
     _gyroscopeSubscription?.cancel();
+    _connectivitySubscription?.cancel();
     super.dispose();
   }
 
@@ -413,18 +533,48 @@ class _SensorScreenState extends State<SensorScreen> {
 
     print('Start button pressed');
 
-    // Start sensors immediately
-    SensorChannel.startSensors().then((_) {}).catchError((error) {
-      print('Error starting sensors: $error');
+    // Generate session ID first
+    String? userEmail;
+    try {
+      userEmail = await _authService.getCurrentUserEmail();
+    } catch (e) {
+      print('Warning: Could not get user email (possibly offline): $e');
+      // Continue without user email - we'll use a timestamp-only session ID
+    }
+
+    final sessionId = userEmail != null
+        ? '${DateTime.now().millisecondsSinceEpoch}_${userEmail.replaceAll('@', '_').replaceAll('.', '_')}'
+        : '${DateTime.now().millisecondsSinceEpoch}_offline';
+
+    // Set up recording first
+    try {
+      await _sensorDataRecorder.startRecording(sessionId);
+    } catch (e) {
+      print('Error starting recording: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error starting sensors: $error'),
+          content: Text('Error starting recording: $e'),
           backgroundColor: Colors.red,
         ),
       );
-    });
+      return;
+    }
 
-    // Set up sensor subscription immediately
+    // Start sensors after recording is set up
+    try {
+      await SensorChannel.startSensors();
+    } catch (e) {
+      print('Error starting sensors: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error starting sensors: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Set up sensor subscription
     _accelerometerSubscription?.cancel(); // Cancel any existing subscription
     _accelerometerSubscription = Stream.periodic(
       Duration(milliseconds: (1000 / _samplesPerSecond).round()),
@@ -496,14 +646,6 @@ class _SensorScreenState extends State<SensorScreen> {
       _isAboveThreshold = false; // Reset threshold flag
       _startTime = DateTime.now(); // Reset start time
     });
-
-    // Generate session ID and set up recording in parallel
-    final userEmail = await _authService.getCurrentUserEmail();
-    final sessionId =
-        '${DateTime.now().millisecondsSinceEpoch}_${userEmail?.replaceAll('@', '_').replaceAll('.', '_')}';
-
-    // Set up recording
-    await _sensorDataRecorder.startRecording(sessionId);
   }
 
   void _processGyroscopeDataBatch() {
@@ -584,29 +726,38 @@ class _SensorScreenState extends State<SensorScreen> {
     _accelerometerSubscription?.cancel();
     _gyroscopeSubscription?.cancel();
 
-    setState(() {
-      _isTracking = false;
-    });
-
     // Create new session status
-    final userEmail = await _authService.getCurrentUserEmail();
-    final sessionId =
-        '${DateTime.now().millisecondsSinceEpoch}_${userEmail?.replaceAll('@', '_').replaceAll('.', '_')}';
+    String? userEmail;
+    try {
+      userEmail = await _authService.getCurrentUserEmail();
+    } catch (e) {
+      print('Warning: Could not get user email (possibly offline): $e');
+    }
+
+    final sessionId = userEmail != null
+        ? '${DateTime.now().millisecondsSinceEpoch}_${userEmail.replaceAll('@', '_').replaceAll('.', '_')}'
+        : '${DateTime.now().millisecondsSinceEpoch}_offline';
+
+    // Get the file path for this session before stopping recording
+    final filePath = await _sensorDataRecorder.getCurrentSessionFilePath();
+
     final session = SessionStatus(
       sessionId: sessionId,
       startTime: _startTime!,
       endTime: DateTime.now(),
+      isWaitingForNetwork: !_hasNetworkConnection,
+      filePath: filePath, // Store the file path in the session
     );
 
+    // Update UI state and add session card immediately
     setState(() {
+      _isTracking = false;
       _sessions.insert(0, session);
     });
 
-    // Stop recording and save data
+    // Always stop recording and save data, regardless of network state
     await _sensorDataRecorder.stopRecording();
 
-    // Get the file path for this session
-    final filePath = await _sensorDataRecorder.getCurrentSessionFilePath();
     if (filePath == null) {
       setState(() {
         session.isComplete = true;
@@ -653,11 +804,29 @@ class _SensorScreenState extends State<SensorScreen> {
       return;
     }
 
+    // Store the CSV lines in the session
+    session.csvLines = csvLines;
+
+    // If no network connection, keep the session in waiting state and return early
+    if (!_hasNetworkConnection) {
+      setState(() {
+        session.isWaitingForNetwork = true;
+      });
+      return;
+    }
+
     // Start upload with progress bar
     await _uploadCSVToServer(session);
   }
 
   Future<void> _uploadCSVToServer(SessionStatus session) async {
+    if (!_hasNetworkConnection) {
+      setState(() {
+        session.isWaitingForNetwork = true;
+      });
+      return;
+    }
+
     try {
       // Get the current user's email
       final authService = Provider.of<AuthService>(context, listen: false);
@@ -668,34 +837,29 @@ class _SensorScreenState extends State<SensorScreen> {
         return;
       }
 
-      // Get the file path for this session
-      final filePath = await _sensorDataRecorder.getCurrentSessionFilePath();
-      if (filePath == null) {
-        print("❌ No file path found for session ${session.sessionId}");
-        return;
+      // If we don't have the CSV lines stored, read them from the file
+      if (session.csvLines == null && session.filePath != null) {
+        final file = File(session.filePath!);
+        if (!await file.exists()) {
+          print('CSV file does not exist');
+          setState(() {
+            session.isComplete = true;
+            session.results = {
+              'error': 'No data file found',
+              'total_windows_processed': 0,
+              'basal_metabolic_rate': 0,
+              'gait_cycles': 0,
+              'results': []
+            };
+          });
+          return;
+        }
+
+        // Read CSV file line-by-line and store in session
+        session.csvLines = await file.readAsLines();
       }
 
-      final file = File(filePath);
-
-      if (!await file.exists()) {
-        print('CSV file does not exist');
-        setState(() {
-          session.isComplete = true;
-          session.results = {
-            'error': 'No data file found',
-            'total_windows_processed': 0,
-            'basal_metabolic_rate': 0,
-            'gait_cycles': 0,
-            'results': []
-          };
-        });
-        return;
-      }
-
-      // Read CSV file line-by-line
-      List<String> csvLines = await file.readAsLines();
-
-      if (csvLines.length <= 1) {
+      if (session.csvLines!.length <= 1) {
         print("❌ CSV file contains no data.");
         setState(() {
           session.isComplete = true;
@@ -711,17 +875,27 @@ class _SensorScreenState extends State<SensorScreen> {
       }
 
       // Extract header and data separately
-      String header = csvLines.first;
-      List<String> dataRows = csvLines.sublist(1); // Skip header row
-
-      // Print total number of rows
-      print("📊 Total rows in CSV (excluding header): ${dataRows.length}");
+      String header = session.csvLines!.first;
+      List<String> dataRows = session.csvLines!.sublist(1); // Skip header row
 
       // Define batch size
       int batchSize = 200;
       int totalBatches = (dataRows.length / batchSize).ceil();
 
-      for (int i = 0; i < dataRows.length; i += batchSize) {
+      // Start from the last uploaded batch
+      for (int i = session.lastUploadedBatchIndex * batchSize;
+          i < dataRows.length;
+          i += batchSize) {
+        // Check network connection before each batch
+        if (!_hasNetworkConnection) {
+          setState(() {
+            session.isWaitingForNetwork = true;
+            session.lastUploadedBatchIndex =
+                i ~/ batchSize; // Save current batch index
+          });
+          return;
+        }
+
         List<String> batch =
             dataRows.sublist(i, (i + batchSize).clamp(0, dataRows.length));
         String batchCsv = "$header\n${batch.join("\n")}";
@@ -749,18 +923,35 @@ class _SensorScreenState extends State<SensorScreen> {
           // Update session progress
           setState(() {
             session.uploadProgress = (i ~/ batchSize + 1) / totalBatches;
+            session.lastUploadedBatchIndex = i ~/ batchSize + 1;
           });
         } else {
           print(
               "❌ Failed to upload batch ${i ~/ batchSize + 1}: ${response.body}");
-          break;
+          setState(() {
+            session.isWaitingForNetwork = true;
+            session.lastUploadedBatchIndex =
+                i ~/ batchSize; // Save current batch index
+          });
+          return;
         }
       }
 
       // Update session to processing state
       setState(() {
         session.isProcessing = true;
+        session.isProcessingEnergyExpenditure = true;
       });
+
+      // Check network connection before processing energy expenditure
+      if (!_hasNetworkConnection) {
+        setState(() {
+          session.isWaitingForNetwork = true;
+          session.isProcessing = false;
+          session.isProcessingEnergyExpenditure = false;
+        });
+        return;
+      }
 
       // Process energy expenditure
       final results =
@@ -770,13 +961,18 @@ class _SensorScreenState extends State<SensorScreen> {
       setState(() {
         session.isComplete = true;
         session.isProcessing = false;
+        session.isProcessingEnergyExpenditure = false;
         session.results = results;
       });
 
       // Delete the CSV file after successful upload and processing
       try {
-        await file.delete();
-        print("✅ Deleted CSV file for session ${session.sessionId}");
+        final filePath = await _sensorDataRecorder.getCurrentSessionFilePath();
+        if (filePath != null) {
+          final file = File(filePath);
+          await file.delete();
+          print("✅ Deleted CSV file for session ${session.sessionId}");
+        }
       } catch (e) {
         print("⚠️ Error deleting CSV file: $e");
       }
@@ -913,7 +1109,14 @@ class _SensorScreenState extends State<SensorScreen> {
       }
     } catch (e) {
       print("⚠️ Error uploading CSV: $e");
-      if (mounted) {
+      if (e.toString().contains('network') ||
+          e.toString().contains('connection')) {
+        setState(() {
+          session.isWaitingForNetwork = true;
+          session.isProcessing = false;
+          session.isProcessingEnergyExpenditure = false;
+        });
+      } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error uploading data: $e'),
@@ -936,6 +1139,11 @@ class _SensorScreenState extends State<SensorScreen> {
       };
 
       final String fargateEndpoint = ApiConfig.energyExpenditureServiceUrl;
+
+      // Check network connection before making the request
+      if (!_hasNetworkConnection) {
+        throw Exception('No network connection');
+      }
 
       final response = await http.post(
         Uri.parse(fargateEndpoint),
@@ -968,6 +1176,11 @@ class _SensorScreenState extends State<SensorScreen> {
       }
     } catch (e) {
       print("⚠️ Error processing energy expenditure: $e");
+      // If it's a network error, we want to retry when network is restored
+      if (e.toString().contains('network') ||
+          e.toString().contains('connection')) {
+        throw Exception('Network error during energy expenditure processing');
+      }
       throw e;
     }
   }
@@ -1196,7 +1409,6 @@ class _SensorScreenState extends State<SensorScreen> {
       _buildHomeTab(context, lightPurple, textGray, profileProvider),
       PastSessionsPage(),
       UserProfilePage(
-        userProfile: profileProvider.userProfile,
         onProfileUpdated: (profile) {
           profileProvider.updateProfile(profile);
         },

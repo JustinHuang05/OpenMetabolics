@@ -7,6 +7,8 @@ import '../models/session.dart';
 import 'session_details_page.dart';
 import '../auth/auth_service.dart';
 import 'package:provider/provider.dart';
+import 'dart:io' show SocketException;
+import 'package:amplify_flutter/amplify_flutter.dart' as amplify;
 
 class PastSessionsPage extends StatefulWidget {
   @override
@@ -18,6 +20,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   Map<String, bool> _surveyResponses = {};
   bool _isLoading = true;
   String? _errorMessage;
+  bool _isNetworkError = false;
   final DateFormat _dateFormat = DateFormat('MMMM d, y');
   final DateFormat _timeFormat = DateFormat('HH:mm:ss');
 
@@ -28,12 +31,27 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   }
 
   Future<void> _fetchPastSessions() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _isNetworkError = false;
+    });
+
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
+
+      // First try to get user email - this will throw SocketException if no network
       final userEmail = await authService.getCurrentUserEmail();
 
+      // If we get here, we have network connection, now check if user is logged in
       if (userEmail == null) {
-        throw Exception('User not logged in');
+        // Check if user is actually signed in
+        final isSignedIn = await authService.isSignedIn();
+        if (!isSignedIn) {
+          throw Exception('User not logged in');
+        }
+        // If we get here, user is signed in but we couldn't get their email
+        throw Exception('Unable to get user information');
       }
 
       // First get the sessions
@@ -84,11 +102,33 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         throw Exception(
             'Failed to fetch past sessions: ${errorData['error']}${errorData['details'] != null ? '\nDetails: ${errorData['details']}' : ''}');
       }
+    } on SocketException catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isNetworkError = true;
+          _errorMessage = 'No internet connection';
+        });
+      }
+    } on amplify.NetworkException catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isNetworkError = true;
+          _errorMessage = 'No internet connection';
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = e.toString();
           _isLoading = false;
+          if (e.toString().contains('User not logged in')) {
+            _errorMessage = 'Please log in to view your past sessions';
+          } else if (e.toString().contains('Unable to get user information')) {
+            _errorMessage = 'Unable to get user information. Please try again.';
+          } else {
+            _errorMessage = e.toString();
+          }
         });
       }
       print('Error fetching past sessions: $e');
@@ -135,6 +175,49 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
 
     if (_isLoading) {
       return Center(child: CircularProgressIndicator(color: lightPurple));
+    } else if (_isNetworkError) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.wifi_off_rounded,
+                color: Colors.grey[600],
+                size: 64,
+              ),
+              SizedBox(height: 16),
+              Text(
+                'No Internet Connection',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[700],
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Please check your connection and try again',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.grey[600],
+                ),
+              ),
+              SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _fetchPastSessions,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: lightPurple,
+                  foregroundColor: textGray,
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
     } else if (_errorMessage != null) {
       return Center(
         child: Padding(

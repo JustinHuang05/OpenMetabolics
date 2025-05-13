@@ -3,6 +3,7 @@
 import 'user_model.dart';
 import 'package:amplify_flutter/amplify_flutter.dart';
 import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
+import 'dart:io' show SocketException;
 
 class AuthService {
   // Remove Firebase-related code
@@ -143,9 +144,15 @@ class AuthService {
         (element) => element.userAttributeKey == CognitoUserAttributeKey.email,
       );
       return emailAttribute.value;
+    } on SocketException catch (e) {
+      print('Network error getting user email: $e');
+      rethrow; // Rethrow network errors
+    } on NetworkException catch (e) {
+      print('Amplify network error getting user email: $e');
+      rethrow; // Rethrow Amplify network errors
     } catch (e) {
       print('Error getting user email: $e');
-      return null;
+      return null; // Return null only for non-network errors
     }
   }
 

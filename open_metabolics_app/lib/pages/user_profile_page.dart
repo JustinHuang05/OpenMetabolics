@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:io' show SocketException;
 import '../auth/auth_service.dart';
 import '../models/user_profile.dart';
 import '../config/api_config.dart';
+import 'package:amplify_flutter/amplify_flutter.dart' as amplify;
 
 class UserProfilePage extends StatefulWidget {
-  final UserProfile? userProfile;
   final Function(UserProfile) onProfileUpdated;
 
   const UserProfilePage({
     Key? key,
-    required this.userProfile,
     required this.onProfileUpdated,
   }) : super(key: key);
 
@@ -30,17 +30,91 @@ class _UserProfilePageState extends State<UserProfilePage> {
   String _selectedGender = 'male';
 
   bool _isLoading = false;
+  bool _isInitialLoading = true;
   String? _errorMessage;
+  bool _isNetworkError = false;
+  UserProfile? _userProfile;
 
   @override
   void initState() {
     super.initState();
-    // Initialize form fields with existing profile data if available
-    if (widget.userProfile != null) {
-      _weightController.text = widget.userProfile!.weight.toString();
-      _heightController.text = widget.userProfile!.height.toString();
-      _ageController.text = widget.userProfile!.age.toString();
-      _selectedGender = widget.userProfile!.gender;
+    _fetchUserProfile();
+  }
+
+  Future<void> _fetchUserProfile() async {
+    setState(() {
+      _isInitialLoading = true;
+      _errorMessage = null;
+      _isNetworkError = false;
+    });
+
+    try {
+      // First try to get user email - this will throw SocketException if no network
+      final userEmail = await _authService.getCurrentUserEmail();
+
+      // If we get here, we have network connection, now check if user is logged in
+      if (userEmail == null) {
+        // Check if user is actually signed in
+        final isSignedIn = await _authService.isSignedIn();
+        if (!isSignedIn) {
+          throw Exception('User not logged in');
+        }
+        // If we get here, user is signed in but we couldn't get their email
+        throw Exception('Unable to get user information');
+      }
+
+      final response = await http.post(
+        Uri.parse(ApiConfig.getUserProfile),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'user_email': userEmail,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _userProfile = UserProfile.fromJson(data);
+          // Initialize form fields with profile data
+          _weightController.text = _userProfile!.weight.toString();
+          _heightController.text = _userProfile!.height.toString();
+          _ageController.text = _userProfile!.age.toString();
+          _selectedGender = _userProfile!.gender;
+        });
+      } else if (response.statusCode == 404) {
+        // Profile not found, this is okay
+        setState(() {
+          _userProfile = null;
+        });
+      } else {
+        throw Exception('Failed to fetch profile: ${response.body}');
+      }
+    } on SocketException catch (e) {
+      setState(() {
+        _isNetworkError = true;
+        _errorMessage = 'No internet connection';
+      });
+    } on amplify.NetworkException catch (e) {
+      setState(() {
+        _isNetworkError = true;
+        _errorMessage = 'No internet connection';
+      });
+    } catch (e) {
+      setState(() {
+        if (e.toString().contains('User not logged in')) {
+          _errorMessage = 'Please log in to view your profile';
+        } else if (e.toString().contains('Unable to get user information')) {
+          _errorMessage = 'Unable to get user information. Please try again.';
+        } else {
+          _errorMessage = e.toString();
+        }
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isInitialLoading = false;
+        });
+      }
     }
   }
 
@@ -58,10 +132,14 @@ class _UserProfilePageState extends State<UserProfilePage> {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _isNetworkError = false;
     });
 
     try {
+      // First try to get user email - this will throw SocketException if no network
       final userEmail = await _authService.getCurrentUserEmail();
+
+      // If we get here, we have network connection, now check if user is logged in
       if (userEmail == null) {
         throw Exception('User not logged in');
       }
@@ -100,6 +178,11 @@ class _UserProfilePageState extends State<UserProfilePage> {
       } else {
         throw Exception('Failed to save profile: ${response.body}');
       }
+    } on SocketException catch (e) {
+      setState(() {
+        _isNetworkError = true;
+        _errorMessage = 'No internet connection';
+      });
     } catch (e) {
       setState(() {
         _errorMessage = e.toString();
@@ -117,6 +200,61 @@ class _UserProfilePageState extends State<UserProfilePage> {
   Widget build(BuildContext context) {
     final Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
     final Color textGray = Color.fromRGBO(66, 66, 66, 1);
+
+    if (_isInitialLoading) {
+      return Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (_isNetworkError) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.wifi_off_rounded,
+                  color: Colors.grey[600],
+                  size: 64,
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'No Internet Connection',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[700],
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Please check your connection and try again',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                  ),
+                ),
+                SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: _fetchUserProfile,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: lightPurple,
+                    foregroundColor: textGray,
+                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  child: Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
