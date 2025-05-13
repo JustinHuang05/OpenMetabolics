@@ -5,26 +5,29 @@ class SensorChannel {
   static const MethodChannel _channel = MethodChannel('sensor_channel');
 
   // Method to start the sensors
-  static Future<void> startSensors() async {
-    if (Platform.isAndroid || Platform.isIOS) {
-      await _channel.invokeMethod('startSensors');
-    } else {
-      throw PlatformException(
-        code: 'UNSUPPORTED_PLATFORM',
-        message: 'This platform does not support sensor functionality',
-      );
+  static Future<void> startSensors(String sessionId, int samplingRate) async {
+    try {
+      await _channel.invokeMethod('startSensors', {
+        'sessionId': sessionId,
+        'samplingRate': samplingRate,
+      });
+    } catch (e) {
+      print('Error starting sensors: $e');
+      rethrow;
     }
   }
 
   // Method to stop the sensors
   static Future<void> stopSensors() async {
-    if (Platform.isAndroid || Platform.isIOS) {
-      await _channel.invokeMethod('stopSensors');
-    } else {
-      throw PlatformException(
-        code: 'UNSUPPORTED_PLATFORM',
-        message: 'This platform does not support sensor functionality',
-      );
+    try {
+      final bool success = await _channel.invokeMethod('stopSensors');
+      if (!success) {
+        throw Exception(
+            'Failed to stop sensors - service did not complete writing data');
+      }
+    } catch (e) {
+      print('Error stopping sensors: $e');
+      rethrow;
     }
   }
 
@@ -74,5 +77,13 @@ class SensorChannel {
         message: 'This platform does not support sensor functionality',
       );
     }
+  }
+
+  // Method to get the current session's file path
+  static Future<String?> getCurrentSessionFilePath() async {
+    if (Platform.isAndroid) {
+      return await _channel.invokeMethod<String>('getCurrentSessionFilePath');
+    }
+    return null;
   }
 }

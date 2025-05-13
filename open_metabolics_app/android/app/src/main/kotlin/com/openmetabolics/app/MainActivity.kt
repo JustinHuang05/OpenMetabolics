@@ -1,13 +1,14 @@
 package com.openmetabolics.app
 
 import android.content.ComponentName
-import android.content.Context
-import android.content.Intent
 import android.content.ServiceConnection
+import android.os.Build
 import android.os.IBinder
+import androidx.annotation.RequiresApi
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.MethodChannel.Result
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "sensor_channel"
@@ -38,19 +39,24 @@ class MainActivity : FlutterActivity() {
         channel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "startSensors" -> {
-                    SensorRecordingService.startService(this)
-                    Intent(this, SensorRecordingService::class.java).also { intent ->
-                        bindService(intent, connection, Context.BIND_AUTO_CREATE)
+                    val sessionId = call.argument<String>("sessionId")
+                    val samplingRate = call.argument<Int>("samplingRate")
+                    if (sessionId != null && samplingRate != null) {
+                        startSensors(sessionId, samplingRate)
+                    } else {
+                        result.error(
+                                "INVALID_SESSION",
+                                "Session ID and sampling rate are required",
+                                null
+                        )
                     }
-                    result.success(null)
                 }
                 "stopSensors" -> {
                     if (isBound) {
                         unbindService(connection)
                         isBound = false
                     }
-                    SensorRecordingService.stopService(this)
-                    result.success(null)
+                    stopSensors(result)
                 }
                 "getAccelerometerData" -> {
                     if (isBound && sensorService != null) {
@@ -68,10 +74,46 @@ class MainActivity : FlutterActivity() {
                         result.success(listOf(0.0, 0.0, 0.0))
                     }
                 }
+                "getCurrentSessionFilePath" -> {
+                    if (isBound && sensorService != null) {
+                        val path = sensorService!!.getCurrentSessionFilePath()
+                        result.success(path)
+                    } else {
+                        result.success(null)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }
             }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun startSensors(sessionId: String, samplingRate: Int) {
+        if (sessionId.isBlank()) {
+            result.error("INVALID_SESSION", "Session ID is required", null)
+            return
+        }
+        SensorRecordingService.startService(this, sessionId, samplingRate)
+        result.success(null)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun stopSensors(result: Result) {
+        try {
+            val success = SensorRecordingService.stopService(this)
+            if (!success) {
+                result.error(
+                        "SERVICE_ERROR",
+                        "Failed to stop service - data may be incomplete",
+                        null
+                )
+                return
+            }
+            result.success(null)
+        } catch (e: Exception) {
+            result.error("SERVICE_ERROR", "Failed to stop service: ${e.message}", null)
         }
     }
 
