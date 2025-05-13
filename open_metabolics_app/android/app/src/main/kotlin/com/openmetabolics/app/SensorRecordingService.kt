@@ -28,8 +28,8 @@ class SensorRecordingService : Service(), SensorEventListener {
     private var gyroscope: Sensor? = null
 
     // Variables to store the latest sensor data
-    private var accelerometerData: FloatArray = FloatArray(3)
-    private var gyroscopeData: FloatArray = FloatArray(3)
+    private val accelerometerData = FloatArray(3)
+    private val gyroscopeData = FloatArray(3)
 
     // CSV writing variables
     private var csvFile: File? = null
@@ -59,12 +59,12 @@ class SensorRecordingService : Service(), SensorEventListener {
     private val gyroBuffer = FloatArray(3)
     private val accelBuffer = FloatArray(3)
 
+    // Channel for method calls from Flutter
+    private var channel: MethodChannel? = null
+
     inner class LocalBinder : Binder() {
         fun getService(): SensorRecordingService = this@SensorRecordingService
     }
-
-    // Channel for method calls from Flutter
-    private var channel: MethodChannel? = null
 
     companion object {
         private const val NOTIFICATION_ID = 1
@@ -180,40 +180,39 @@ class SensorRecordingService : Service(), SensorEventListener {
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {
-                System.arraycopy(event.values, 0, accelBuffer, 0, 3)
+                System.arraycopy(event.values, 0, accelerometerData, 0, 3)
                 lastAccelTimestamp = event.timestamp
             }
             Sensor.TYPE_GYROSCOPE -> {
-                System.arraycopy(event.values, 0, gyroBuffer, 0, 3)
+                System.arraycopy(event.values, 0, gyroscopeData, 0, 3)
                 lastGyroTimestamp = event.timestamp
 
                 // Calculate L2 norm for gyroscope data
-                val l2Norm =
-                        sqrt(
-                                gyroBuffer[0] * gyroBuffer[0] +
-                                        gyroBuffer[1] * gyroBuffer[1] +
-                                        gyroBuffer[2] * gyroBuffer[2]
-                        )
+                val l2Norm = sqrt(
+                    gyroscopeData[0] * gyroscopeData[0] +
+                    gyroscopeData[1] * gyroscopeData[1] +
+                    gyroscopeData[2] * gyroscopeData[2]
+                )
 
                 // Create CSV row using StringBuilder
                 stringBuilder.setLength(0) // Clear the buffer
                 stringBuilder
-                        .append(timestampFormat.format(System.currentTimeMillis() / 1000.0))
-                        .append(',')
-                        .append(valueFormat.format(accelBuffer[0]))
-                        .append(',')
-                        .append(valueFormat.format(accelBuffer[1]))
-                        .append(',')
-                        .append(valueFormat.format(accelBuffer[2]))
-                        .append(',')
-                        .append(valueFormat.format(gyroBuffer[0]))
-                        .append(',')
-                        .append(valueFormat.format(gyroBuffer[1]))
-                        .append(',')
-                        .append(valueFormat.format(gyroBuffer[2]))
-                        .append(',')
-                        .append(valueFormat.format(l2Norm))
-                        .append(",0\n")
+                    .append(timestampFormat.format(System.currentTimeMillis() / 1000.0))
+                    .append(',')
+                    .append(valueFormat.format(accelerometerData[0]))
+                    .append(',')
+                    .append(valueFormat.format(accelerometerData[1]))
+                    .append(',')
+                    .append(valueFormat.format(accelerometerData[2]))
+                    .append(',')
+                    .append(valueFormat.format(gyroscopeData[0]))
+                    .append(',')
+                    .append(valueFormat.format(gyroscopeData[1]))
+                    .append(',')
+                    .append(valueFormat.format(gyroscopeData[2]))
+                    .append(',')
+                    .append(valueFormat.format(l2Norm))
+                    .append(",0\n")
 
                 dataBuffer.add(stringBuilder.toString())
                 sampleCount++
@@ -223,9 +222,7 @@ class SensorRecordingService : Service(), SensorEventListener {
                 if (dataBuffer.size >= bufferSize) {
                     val now = System.currentTimeMillis()
                     val timeSinceLastSave = now - lastBufferSaveTime
-                    println(
-                            "Buffer full - Time since last save: ${timeSinceLastSave}ms, Total samples: $totalSamples"
-                    )
+                    println("Buffer full - Time since last save: ${timeSinceLastSave}ms, Total samples: $totalSamples")
                     saveBufferedData()
                     lastBufferSaveTime = now
                 }
