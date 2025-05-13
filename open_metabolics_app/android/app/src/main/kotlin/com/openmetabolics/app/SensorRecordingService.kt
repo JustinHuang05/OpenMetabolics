@@ -22,7 +22,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import kotlin.math.sqrt
+import kotlin.math.abs
 
 class SensorRecordingService : Service(), SensorEventListener {
     private lateinit var sensorManager: SensorManager
@@ -30,6 +30,22 @@ class SensorRecordingService : Service(), SensorEventListener {
     private var gyroscope: Sensor? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var stopLatch: CountDownLatch? = null
+    private var methodChannel: io.flutter.plugin.common.MethodChannel? = null
+    private var isRecording = false
+    private var sessionId: String? = null
+    private var targetInterval: Long = 20000000 // 20ms in nanoseconds
+    private var lastSampleTime: Long = 0
+    private var sampleCount: Int = 0
+    private var lastLogTime: Long = 0
+    private var sessionStartTime: Long = 0
+    private var totalSamples: Int = 0
+    private var totalTime: Long = 0
+    private var lastAdjustmentTime: Long = 0
+    private var currentInterval: Long = 20000000 // Start with 20ms
+    private val adjustmentThreshold = 0.1 // 10% deviation threshold
+    private val minInterval = 15000000L // 15ms minimum
+    private val maxInterval = 25000000L // 25ms maximum
+    private val adjustmentInterval = 1000000000L // Check every second
 
     // Variables to store the latest sensor data
     private var accelerometerData: FloatArray = FloatArray(3)
@@ -38,22 +54,21 @@ class SensorRecordingService : Service(), SensorEventListener {
     // CSV writing variables
     private var csvFile: File? = null
     private var csvWriter: FileWriter? = null
-    private var sessionId: String? = null
-    private var startTime: Long = 0
     private val dataBuffer = mutableListOf<String>()
     private val bufferSize = 200 // Save every 200 readings
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
 
     // Sampling rate tracking
     private var lastGyroTimestamp: Long = 0
-    private var lastLogTime = System.currentTimeMillis()
-    private var sampleCount = 0
-    private var totalSamples = 0
-    private var sessionStartTime = System.currentTimeMillis()
     private var samplingRate: Int = 50 // Default sampling rate
 
     // Binder given to clients
     private val binder = LocalBinder()
+
+    private var nextSampleTime: Long = 0
+    private var timer: Timer? = null
+    private var timerTask: TimerTask? = null
+    private val timerLock = Object()
 
     inner class LocalBinder : Binder() {
         fun getService(): SensorRecordingService = this@SensorRecordingService
@@ -182,10 +197,129 @@ class SensorRecordingService : Service(), SensorEventListener {
     }
 
     private fun startSensors() {
-        val delay = (1000000 / samplingRate).toInt() // Convert Hz to microseconds
-        accelerometer?.let { sensorManager.registerListener(this, it, delay) }
+        isRecording = true
+        sessionStartTime = System.nanoTime()
+        lastSampleTime = sessionStartTime
+        nextSampleTime = sessionStartTime
+        lastAdjustmentTime = sessionStartTime
+        lastLogTime = sessionStartTime
 
-        gyroscope?.let { sensorManager.registerListener(this, it, delay) }
+        // Start timer for precise timing
+        timer = Timer()
+        timerTask =
+                object : TimerTask() {
+                    override fun run() {
+                        synchronized(timerLock) {
+                            val currentTime = System.nanoTime()
+                            if (currentTime >= nextSampleTime) {
+                                // Process sensor data
+                                processSensorData()
+                                // Schedule next sample
+                                nextSampleTime += currentInterval
+                            }
+                        }
+                    }
+                }
+        timer?.scheduleAtFixedRate(
+                timerTask,
+                0,
+                1
+        ) // Run as fast as possible, we'll control timing manually
+    }
+
+    private fun processSensorData() {
+        if (!isRecording) return
+
+        val currentTime = System.nanoTime()
+
+        // Calculate actual sampling rate
+        val timeSinceLastSample = currentTime - lastSampleTime
+        val currentRate =
+                if (timeSinceLastSample > 0) {
+                    1_000_000_000.0 / timeSinceLastSample
+                } else {
+                    0.0
+                }
+
+        // Update statistics
+        sampleCount++
+        totalSamples++
+        totalTime += timeSinceLastSample
+
+        // Check if it's time to adjust the sampling rate
+        if (currentTime - lastAdjustmentTime >= adjustmentInterval) {
+            val averageRate =
+                    if (totalTime > 0) {
+                        totalSamples * 1_000_000_000.0 / totalTime
+                    } else {
+                        0.0
+                    }
+
+            // Calculate adjustment needed
+            val rateError = (averageRate - 50.0) / 50.0 // Normalized error
+
+            if (abs(rateError) > adjustmentThreshold) {
+                // Adjust the interval to compensate
+                val adjustment = (currentInterval * rateError * 0.1).toLong() // 10% adjustment
+                currentInterval = (currentInterval - adjustment).coerceIn(minInterval, maxInterval)
+
+                // Log the adjustment
+                android.util.Log.d(
+                        "SensorRecording",
+                        "Adjusting sampling rate: " +
+                                "Current: ${String.format("%.2f", averageRate)} Hz, " +
+                                "Target: 50.00 Hz, " +
+                                "New interval: ${currentInterval / 1_000_000.0} ms"
+                )
+            }
+
+            // Reset statistics for next adjustment period
+            sampleCount = 0
+            totalSamples = 0
+            totalTime = 0
+            lastAdjustmentTime = currentTime
+        }
+
+        // Log every 5 seconds
+        if (currentTime - lastLogTime >= 5_000_000_000) {
+            val rate =
+                    if (currentTime - lastLogTime > 0) {
+                        sampleCount * 1_000_000_000.0 / (currentTime - lastLogTime)
+                    } else {
+                        0.0
+                    }
+
+            val totalRate =
+                    if (currentTime - sessionStartTime > 0) {
+                        totalSamples * 1_000_000_000.0 / (currentTime - sessionStartTime)
+                    } else {
+                        0.0
+                    }
+
+            // Send detailed stats to Flutter
+            methodChannel?.invokeMethod(
+                    "onSamplingStatsUpdate",
+                    mapOf(
+                            "currentRate" to rate,
+                            "averageRate" to totalRate,
+                            "totalSamples" to totalSamples,
+                            "timeElapsed" to (currentTime - sessionStartTime) / 1_000_000_000.0,
+                            "wakeLockActive" to (wakeLock?.isHeld ?: false),
+                            "targetInterval" to currentInterval / 1_000_000.0
+                    )
+            )
+
+            sampleCount = 0
+            lastLogTime = currentTime
+        }
+
+        // Send real-time rate to Flutter
+        methodChannel?.invokeMethod(
+                "onSamplingRateUpdate",
+                mapOf("rate" to currentRate, "totalSamples" to totalSamples)
+        )
+
+        lastSampleTime = currentTime
     }
 
     override fun onBind(intent: Intent?): IBinder {
@@ -193,6 +327,11 @@ class SensorRecordingService : Service(), SensorEventListener {
     }
 
     override fun onDestroy() {
+        isRecording = false
+        timerTask?.cancel()
+        timer?.cancel()
+        timer = null
+        timerTask = null
         android.util.Log.d("SensorRecording", "Service onDestroy")
         super.onDestroy()
         sensorManager.unregisterListener(this)
@@ -203,76 +342,98 @@ class SensorRecordingService : Service(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        when (event.sensor.type) {
-            Sensor.TYPE_ACCELEROMETER -> {
-                System.arraycopy(event.values, 0, accelerometerData, 0, 3)
+        if (!isRecording) return
+
+        val currentTime = System.nanoTime()
+
+        // Calculate actual sampling rate
+        val timeSinceLastSample = currentTime - lastSampleTime
+        val currentRate =
+                if (timeSinceLastSample > 0) {
+                    1_000_000_000.0 / timeSinceLastSample
+                } else {
+                    0.0
+                }
+
+        // Update statistics
+        sampleCount++
+        totalSamples++
+        totalTime += timeSinceLastSample
+
+        // Check if it's time to adjust the sampling rate
+        if (currentTime - lastAdjustmentTime >= adjustmentInterval) {
+            val averageRate =
+                    if (totalTime > 0) {
+                        totalSamples * 1_000_000_000.0 / totalTime
+                    } else {
+                        0.0
+                    }
+
+            // Calculate adjustment needed
+            val rateError = (averageRate - 50.0) / 50.0 // Normalized error
+
+            if (abs(rateError) > adjustmentThreshold) {
+                // Adjust the interval to compensate
+                val adjustment = (currentInterval * rateError * 0.1).toLong() // 10% adjustment
+                currentInterval = (currentInterval - adjustment).coerceIn(minInterval, maxInterval)
+
+                // Log the adjustment
+                android.util.Log.d(
+                        "SensorRecording",
+                        "Adjusting sampling rate: " +
+                                "Current: ${String.format("%.2f", averageRate)} Hz, " +
+                                "Target: 50.00 Hz, " +
+                                "New interval: ${currentInterval / 1_000_000.0} ms"
+                )
             }
-            Sensor.TYPE_GYROSCOPE -> {
-                System.arraycopy(event.values, 0, gyroscopeData, 0, 3)
 
-                // Track sampling rate
-                val currentTime = System.currentTimeMillis()
-                sampleCount++
-                totalSamples++
+            // Reset statistics for next adjustment period
+            sampleCount = 0
+            totalSamples = 0
+            totalTime = 0
+            lastAdjustmentTime = currentTime
+        }
 
-                if (currentTime - lastLogTime >= 5000) {
-                    val rate = sampleCount * 1000.0 / (currentTime - lastLogTime)
-                    val totalRate = totalSamples * 1000.0 / (currentTime - sessionStartTime)
-                    android.util.Log.d(
-                            "SensorRecording",
-                            """
-                        Current sampling rate: $rate Hz
-                        Average sampling rate: $totalRate Hz
-                        Total samples: $totalSamples
-                        Time elapsed: ${(currentTime - sessionStartTime) / 1000.0} seconds
-                        Wake lock active: ${wakeLock?.isHeld ?: false}
-                    """.trimIndent()
+        // Log every 5 seconds
+        if (currentTime - lastLogTime >= 5_000_000_000) {
+            val rate =
+                    if (currentTime - lastLogTime > 0) {
+                        sampleCount * 1_000_000_000.0 / (currentTime - lastLogTime)
+                    } else {
+                        0.0
+                    }
+
+            val totalRate =
+                    if (currentTime - sessionStartTime > 0) {
+                        totalSamples * 1_000_000_000.0 / (currentTime - sessionStartTime)
+                    } else {
+                        0.0
+                    }
+
+            // Send detailed stats to Flutter
+            methodChannel?.invokeMethod(
+                    "onSamplingStatsUpdate",
+                    mapOf(
+                            "currentRate" to rate,
+                            "averageRate" to totalRate,
+                            "totalSamples" to totalSamples,
+                            "timeElapsed" to (currentTime - sessionStartTime) / 1_000_000_000.0,
+                            "wakeLockActive" to (wakeLock?.isHeld ?: false),
+                            "targetInterval" to currentInterval / 1_000_000.0
                     )
-                    sampleCount = 0
-                    lastLogTime = currentTime
-                }
+            )
 
-                // Calculate L2 norm for gyroscope data
-                val l2Norm =
-                        sqrt(
-                                gyroscopeData[0] * gyroscopeData[0] +
-                                        gyroscopeData[1] * gyroscopeData[1] +
-                                        gyroscopeData[2] * gyroscopeData[2]
-                        )
-
-                // Create CSV row
-                val timestamp = System.currentTimeMillis() / 1000.0
-                val row =
-                        String.format(
-                                "%.3f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,0\n",
-                                timestamp,
-                                accelerometerData[0],
-                                accelerometerData[1],
-                                accelerometerData[2],
-                                gyroscopeData[0],
-                                gyroscopeData[1],
-                                gyroscopeData[2],
-                                l2Norm
-                        )
-
-                dataBuffer.add(row)
-
-                // Save data if buffer is full
-                if (dataBuffer.size >= bufferSize) {
-                    saveBufferedData()
-                }
-            }
+            sampleCount = 0
+            lastLogTime = currentTime
         }
-    }
 
-    private fun saveBufferedData() {
-        try {
-            dataBuffer.forEach { row -> csvWriter?.write(row) }
-            csvWriter?.flush()
-            dataBuffer.clear()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        // Send real-time rate to Flutter
+        methodChannel?.invokeMethod(
+                "onSamplingRateUpdate",
+                mapOf("rate" to currentRate, "totalSamples" to totalSamples)
+        )
+
+        lastSampleTime = currentTime
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
