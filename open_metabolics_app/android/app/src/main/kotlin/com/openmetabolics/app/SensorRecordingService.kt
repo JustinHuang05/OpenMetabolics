@@ -39,6 +39,8 @@ class SensorRecordingService : Service(), SensorEventListener {
     private val dataBuffer = mutableListOf<String>()
     private val bufferSize = 200 // Save every 200 readings
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+    private var currentFilePath: String? = null
+    private var isFileInitialized = false
 
     // Monitoring variables
     private var sampleCount: Long = 0
@@ -104,17 +106,41 @@ class SensorRecordingService : Service(), SensorEventListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         intent?.let {
-            sessionId = it.getStringExtra("sessionId")
-            startTime = System.currentTimeMillis()
-            initializeCSV()
+            val newSessionId = it.getStringExtra("sessionId")
+            if (newSessionId != sessionId) {
+                sessionId = newSessionId
+                startTime = System.currentTimeMillis()
+                initializeCSV()
+            }
         }
         return START_STICKY
     }
 
     private fun initializeCSV() {
         try {
+            if (sessionId == null) {
+                println("Error: sessionId is null")
+                return
+            }
+
             val directory = getExternalFilesDir(null)
+            if (directory == null) {
+                println("Error: Could not get external files directory")
+                return
+            }
+
+            // Close any existing writer
+            csvWriter?.close()
+
+            // Create new file
             csvFile = File(directory, "sensor_data_${sessionId}.csv")
+            currentFilePath = csvFile?.absolutePath
+
+            if (currentFilePath == null) {
+                println("Error: Could not get absolute path for CSV file")
+                return
+            }
+
             csvWriter = FileWriter(csvFile, true)
 
             // Write header if file is new
@@ -123,8 +149,13 @@ class SensorRecordingService : Service(), SensorEventListener {
                         "Timestamp,Accelerometer_X,Accelerometer_Y,Accelerometer_Z,Gyroscope_X,Gyroscope_Y,Gyroscope_Z,L2_Norm,Platform\n"
                 )
             }
+
+            isFileInitialized = true
+            println("CSV file initialized at: $currentFilePath")
         } catch (e: Exception) {
             e.printStackTrace()
+            println("Error initializing CSV: ${e.message}")
+            isFileInitialized = false
         }
     }
 
@@ -167,9 +198,19 @@ class SensorRecordingService : Service(), SensorEventListener {
 
     override fun onDestroy() {
         super.onDestroy()
-        sensorManager.unregisterListener(this)
-        saveBufferedData()
-        csvWriter?.close()
+        try {
+            sensorManager.unregisterListener(this)
+            if (isFileInitialized) {
+                saveBufferedData()
+                csvWriter?.close()
+                println("Service destroyed. Final file path: $currentFilePath")
+            } else {
+                println("Service destroyed but no file was initialized")
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            println("Error in onDestroy: ${e.message}")
+        }
     }
 
     override fun onSensorChanged(event: SensorEvent) {
@@ -239,14 +280,33 @@ class SensorRecordingService : Service(), SensorEventListener {
 
     private fun saveBufferedData() {
         try {
-            val writer = csvWriter ?: return
-            for (row in dataBuffer) {
-                writer.write(row)
+            if (!isFileInitialized) {
+                println("Error: File not initialized, cannot save data")
+                return
             }
-            writer.flush()
-            dataBuffer.clear()
+
+            val writer =
+                    csvWriter
+                            ?: run {
+                                println("Error: CSV writer is null, reinitializing...")
+                                initializeCSV()
+                                return
+                            }
+
+            if (dataBuffer.isNotEmpty()) {
+                for (row in dataBuffer) {
+                    writer.write(row)
+                }
+                writer.flush()
+                println("Saved ${dataBuffer.size} rows to file: $currentFilePath")
+                dataBuffer.clear()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
+            println("Error saving buffered data: ${e.message}")
+            // Try to recover by reinitializing
+            isFileInitialized = false
+            initializeCSV()
         }
     }
 
@@ -266,6 +326,12 @@ class SensorRecordingService : Service(), SensorEventListener {
     }
 
     fun getCurrentSessionFilePath(): String? {
-        return csvFile?.absolutePath
+        if (!isFileInitialized) {
+            println("Warning: Getting file path but file is not initialized")
+            return null
+        }
+        val path = currentFilePath
+        println("Getting current session file path: $path")
+        return path
     }
 }
