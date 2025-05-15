@@ -229,19 +229,29 @@ class SessionStatusWidget extends StatelessWidget {
 
   Color _getStatusColor(SessionStatus session) {
     if (session.isComplete) {
-      return session.results?['error'] != null ? Colors.red : Colors.green;
+      if (session.results?['error'] != null) {
+        return Colors.red;
+      }
+      return Colors.green;
     }
     if (session.isWaitingForNetwork) {
       return Colors.orange;
     }
-    return session.isProcessing ? Colors.orange : Colors.blue;
+    if (session.isProcessingEnergyExpenditure) {
+      return Colors.deepPurple;
+    }
+    if (session.isProcessing) {
+      return Colors.orange;
+    }
+    return Colors.blue;
   }
 
   IconData _getStatusIcon(SessionStatus session) {
     if (session.isComplete) {
-      return session.results?['error'] != null
-          ? Icons.error_outline
-          : Icons.check_circle;
+      if (session.results?['error'] != null) {
+        return Icons.error_outline;
+      }
+      return Icons.check_circle;
     }
     if (session.isWaitingForNetwork) {
       return Icons.wifi_off;
@@ -251,9 +261,15 @@ class SessionStatusWidget extends StatelessWidget {
 
   String _getStatusTitle(SessionStatus session) {
     if (session.isComplete) {
-      return session.results?['error'] != null
-          ? 'Upload Failed'
-          : 'Session Complete';
+      if (session.results?['error'] != null) {
+        if (session.results!['error']
+            .toString()
+            .startsWith('Session too short')) {
+          return 'Upload Failed';
+        }
+        return 'Upload Failed';
+      }
+      return 'Session Complete';
     }
     if (session.isWaitingForNetwork) {
       return 'Waiting for Network';
@@ -325,7 +341,6 @@ class _SensorScreenState extends State<SensorScreen> {
   String _accelerometerData = 'Accelerometer: (0, 0, 0)';
   String _gyroscopeData = 'Gyroscope: (0, 0, 0)';
   bool _isTracking = false;
-  bool _isAboveThreshold = false;
   double _threshold = 0; // Threshold value for the average second norm
   int _samplesPerSecond = 50; // Desired samples per second
   int _rowCount = 0; // Count the number of rows saved
@@ -344,7 +359,8 @@ class _SensorScreenState extends State<SensorScreen> {
   List<List<dynamic>> _csvData = [];
 
   // Create an instance of the sensor data recorderR
-  final SensorDataRecorder _sensorDataRecorder = SensorDataRecorder();
+  Map<String, SensorDataRecorder> _activeRecorders =
+      {}; // NEW: Map of recorders by sessionId
 
   final AuthService _authService = AuthService();
   UserProfile? _userProfile;
@@ -355,6 +371,8 @@ class _SensorScreenState extends State<SensorScreen> {
 
   String?
       _currentSessionId; // <-- ADDED: To store the session ID from startTracking
+  int _currentSessionLinesWritten =
+      0; // <-- ADDED: To track lines written to current CSV
 
   static const List<String> _titles = [
     'Open Metabolics',
@@ -417,44 +435,106 @@ class _SensorScreenState extends State<SensorScreen> {
   void _pauseActiveUploads() {
     setState(() {
       for (var session in _sessions) {
-        if (!session.isComplete) {
+        if (!session.isComplete && !session.isWaitingForNetwork) {
+          // Only pause if not already waiting
           session.isWaitingForNetwork = true;
-          session.isProcessing = false;
-          session.isProcessingEnergyExpenditure = false;
+          // If it was uploading, it will be implicitly paused.
+          // If it was in the _processEnergyExpenditure HTTP call, that call will either complete or timeout.
+          // The retry logic in _processEnergyExpenditure handles network loss during its own operation.
         }
       }
     });
   }
 
-  void _resumeWaitingUploads() {
+  void _resumeWaitingUploads() async {
     for (var session in _sessions) {
       if (session.isWaitingForNetwork) {
-        session.isWaitingForNetwork = false;
-        if (session.isProcessingEnergyExpenditure) {
-          // If we were processing energy expenditure, retry that
-          _processEnergyExpenditure(
-                  session.sessionId,
-                  Provider.of<AuthService>(context, listen: false)
-                      .getCurrentUserEmail() as String)
-              .then((results) {
-            setState(() {
-              session.isComplete = true;
-              session.isProcessing = false;
-              session.isProcessingEnergyExpenditure = false;
-              session.results = results;
-            });
-          }).catchError((error) {
-            if (error.toString().contains('network')) {
+        // Find the authoritative SessionStatus object from the _sessions list
+        final sessionStatusToResume = _sessions.firstWhere(
+            (s) => s.sessionId == session.sessionId,
+            orElse: () => session /* Should always find itself */);
+
+        // If a session is waiting, we assume we're about to try something with it.
+        // The specific methods (EE processing or CSV upload) will set it back to
+        // waiting if they encounter network issues during their operation.
+        if (mounted) {
+          // Ensure widget is still mounted before calling setState
+          setState(() {
+            // Tentatively mark as not waiting; subsequent operations will reset if needed
+            sessionStatusToResume.isWaitingForNetwork = false;
+          });
+        } else {
+          // If not mounted, we can't update state, so skip this session for now.
+          continue;
+        }
+
+        if (sessionStatusToResume.isProcessingEnergyExpenditure &&
+            !sessionStatusToResume.isComplete) {
+          print(
+              "Resuming energy expenditure for ${sessionStatusToResume.sessionId}");
+          // Ensuring email is available or handled gracefully
+          String? userEmail;
+          try {
+            userEmail = await Provider.of<AuthService>(context, listen: false)
+                .getCurrentUserEmail();
+            if (userEmail == null) throw Exception("User email is null");
+          } catch (e) {
+            print(
+                "Error getting user email for EE resumption of ${sessionStatusToResume.sessionId}: $e");
+            if (mounted) {
               setState(() {
-                session.isWaitingForNetwork = true;
-                session.isProcessing = false;
-                session.isProcessingEnergyExpenditure = false;
+                sessionStatusToResume.isWaitingForNetwork =
+                    true; // Needs network for email
+                sessionStatusToResume.isProcessing = false;
+                sessionStatusToResume.isProcessingEnergyExpenditure = false;
+              });
+            }
+            continue; // Skip to next session if email fetch fails
+          }
+
+          _processEnergyExpenditure(sessionStatusToResume.sessionId, userEmail)
+              .then((results) {
+            if (mounted) {
+              setState(() {
+                sessionStatusToResume.isComplete = true;
+                sessionStatusToResume.isProcessing = false;
+                sessionStatusToResume.isProcessingEnergyExpenditure = false;
+                sessionStatusToResume.results = results;
+                _activeRecorders.remove(sessionStatusToResume.sessionId);
+              });
+            }
+          }).catchError((error) {
+            print(
+                "Error resuming energy expenditure for ${sessionStatusToResume.sessionId}: $error");
+            if (mounted) {
+              setState(() {
+                if (error.toString().contains('No network connection') ||
+                    error.toString().contains('Failed host lookup') ||
+                    error.toString().contains('SocketException')) {
+                  sessionStatusToResume.isWaitingForNetwork = true;
+                } else {
+                  sessionStatusToResume.isComplete = true;
+                  sessionStatusToResume.results = {
+                    'error': 'Failed to resume energy expenditure: $error'
+                  };
+                  _activeRecorders.remove(sessionStatusToResume.sessionId);
+                }
+                sessionStatusToResume.isProcessing = false;
+                sessionStatusToResume.isProcessingEnergyExpenditure = false;
               });
             }
           });
+        } else if (!sessionStatusToResume.isComplete) {
+          // This covers sessions that need to start/resume CSV upload,
+          // including those created entirely offline.
+          print(
+              "Attempting/Resuming CSV upload for ${sessionStatusToResume.sessionId}.");
+          _uploadCSVToServer(sessionStatusToResume);
         } else {
-          // Otherwise continue with the upload
-          _uploadCSVToServer(session);
+          // Session is already complete, and was marked as waiting.
+          // isWaitingForNetwork flag was cleared by the setState above.
+          print(
+              "Session ${sessionStatusToResume.sessionId} was waiting but is already complete. No action taken.");
         }
       }
     }
@@ -507,30 +587,37 @@ class _SensorScreenState extends State<SensorScreen> {
     _accelerometerSubscription?.cancel();
     _gyroscopeSubscription?.cancel();
     _connectivitySubscription?.cancel();
+    // Ensure all active recorders are stopped and cleaned up if necessary
+    _activeRecorders.forEach((sessionId, recorder) async {
+      await recorder.stopRecording();
+    });
+    _activeRecorders.clear();
     super.dispose();
   }
 
   void _startTracking() async {
     final profileProvider = context.read<UserProfileProvider>();
-
-    if (profileProvider.isLoading) {
+    if (profileProvider.isLoading || !profileProvider.hasProfile) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please wait while your profile loads'),
+        SnackBar(
+          content: Text(profileProvider.isLoading
+              ? 'Please wait while your profile loads'
+              : 'Please complete your profile before starting tracking'),
           backgroundColor: Colors.orange,
         ),
       );
       return;
     }
 
-    if (!profileProvider.hasProfile) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('Please complete your profile before starting tracking'),
-          backgroundColor: Colors.red,
-        ),
-      );
+    // Check if another session is currently being recorded by this UI instance.
+    // This simple check prevents one UI from trying to manage two *live* recordings simultaneously.
+    // It does not prevent starting a new session while an old one is uploading in the background.
+    if (_isTracking) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content:
+            Text('A session is already being recorded. Please stop it first.'),
+        backgroundColor: Colors.orange,
+      ));
       return;
     }
 
@@ -540,172 +627,148 @@ class _SensorScreenState extends State<SensorScreen> {
     try {
       userEmail = await _authService.getCurrentUserEmail();
     } catch (e) {
-      print('Warning: Could not get user email (possibly offline): $e');
+      print('Error getting user email (likely offline): $e');
+      userEmail =
+          null; // Ensure userEmail is null to trigger offline session ID
     }
 
-    // Generate session ID
     final String newSessionId = userEmail != null
         ? '${DateTime.now().millisecondsSinceEpoch}_${userEmail.replaceAll('@', '_').replaceAll('.', '_')}'
         : '${DateTime.now().millisecondsSinceEpoch}_offline';
 
-    setState(() {
-      _currentSessionId =
-          newSessionId; // <-- MODIFIED: Store the generated sessionId
-    });
+    // Create and store a new recorder for this session
+    final newRecorder = SensorDataRecorder(sessionId: newSessionId);
+    _activeRecorders[newSessionId] = newRecorder;
 
-    // Set up recording first
-    try {
-      // Use the stored _currentSessionId
-      if (_currentSessionId == null) {
-        print('Error: _currentSessionId is null before starting recording.');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-                'Error: Session ID not generated. Cannot start recording.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-      await _sensorDataRecorder.startRecording(_currentSessionId!);
-    } catch (e) {
-      print('Error starting recording: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error starting recording: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+    // Set current recording session ID for the UI
+    _currentSessionId = newSessionId;
+
+    // Start the Dart-side recording (file initialization)
+    bool recordingStarted = await newRecorder.startRecording();
+    if (!recordingStarted) {
+      print(
+          'Error: SensorDataRecorder failed to start for session $newSessionId.');
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Error initializing recording. Please try again.'),
+        backgroundColor: Colors.red,
+      ));
+      _activeRecorders.remove(newSessionId); // Clean up failed recorder
+      _currentSessionId = null;
       return;
     }
 
-    // Start sensors after recording is set up
+    // Start native sensors AFTER Dart recorder is ready
     try {
-      // Use the stored _currentSessionId
-      if (_currentSessionId == null) {
-        print('Error: _currentSessionId is null before starting sensors.');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content:
-                Text('Error: Session ID not generated. Cannot start sensors.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-      await SensorChannel.startSensors(_currentSessionId!);
+      await SensorChannel.startSensors(
+          newSessionId); // Pass newSessionId to native
     } catch (e) {
-      print('Error starting sensors: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error starting sensors: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      print('Error starting native sensors for session $newSessionId: $e');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Error starting device sensors: $e'),
+        backgroundColor: Colors.red,
+      ));
+      await newRecorder
+          .stopRecording(); // Clean up Dart recorder if native part fails
+      _activeRecorders.remove(newSessionId);
+      _currentSessionId = null;
       return;
     }
 
-    // Set up sensor subscription
-    _accelerometerSubscription?.cancel(); // Cancel any existing subscription
+    _startTime = DateTime.now(); // Set start time for this new session
+
+    _accelerometerSubscription?.cancel();
     _accelerometerSubscription = Stream.periodic(
       Duration(milliseconds: (1000 / _samplesPerSecond).round()),
     ).asyncMap((_) => SensorChannel.getAccelerometerData()).listen((data) {
-      if (data.length < 3) {
-        print('Error: Invalid accelerometer data length: ${data.length}');
+      if (data.length < 3) return;
+
+      if (_currentSessionId == null ||
+          _activeRecorders[_currentSessionId] == null) {
+        // If no active recording session or recorder is found, stop listening.
+        _accelerometerSubscription?.cancel();
         return;
       }
+      final currentRecorder = _activeRecorders[_currentSessionId!];
 
       setState(() {
         _accelerometerData =
             'Accelerometer: (${data[0].toStringAsFixed(2)}, ${data[1].toStringAsFixed(2)}, ${data[2].toStringAsFixed(2)})';
       });
 
-      // Get gyroscope data
       SensorChannel.getGyroscopeData().then((gyroData) {
-        if (gyroData.length < 3) {
-          print('Error: Invalid gyroscope data length: ${gyroData.length}');
-          return;
-        }
+        if (gyroData.length < 3) return;
 
         setState(() {
           _gyroscopeData =
               'Gyroscope: (${gyroData[0].toStringAsFixed(2)}, ${gyroData[1].toStringAsFixed(2)}, ${gyroData[2].toStringAsFixed(2)})';
+          if (_currentSessionId != null && _startTime != null) {
+            double secondNorm = sqrt(gyroData[0] * gyroData[0] +
+                gyroData[1] * gyroData[1] +
+                gyroData[2] * gyroData[2]);
+            _gyroscopeNorms.add(secondNorm);
 
-          double secondNorm = sqrt(gyroData[0] * gyroData[0] +
-              gyroData[1] * gyroData[1] +
-              gyroData[2] * gyroData[2]);
-          _gyroscopeNorms.add(secondNorm);
-
-          final elapsedTime =
-              DateTime.now().difference(_startTime!).inMilliseconds;
-
-          // Buffer both accelerometer and gyroscope data together
-          _sensorDataRecorder.bufferData(elapsedTime / 1000.0, data[0], data[1],
-              data[2], gyroData[0], gyroData[1], gyroData[2]);
-
-          _rowCount++;
-
-          if (_rowCount >= _batchSize) {
-            _processGyroscopeDataBatch();
+            final elapsedTime =
+                DateTime.now().difference(_startTime!).inMilliseconds;
+            currentRecorder!.bufferData(elapsedTime / 1000.0, data[0], data[1],
+                data[2], gyroData[0], gyroData[1], gyroData[2]);
+            _rowCount++;
+            if (_rowCount >= _batchSize) {
+              _processGyroscopeDataBatch(_currentSessionId!);
+            }
           }
         });
       }).catchError((error) {
         print('Error getting gyroscope data: $error');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error getting gyroscope data: $error'),
-            backgroundColor: Colors.red,
-          ),
-        );
       });
     }, onError: (error) {
       print('Error getting accelerometer data: $error');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error getting accelerometer data: $error'),
-          backgroundColor: Colors.red,
-        ),
-      );
     });
 
-    // Update UI state immediately
     setState(() {
-      _isTracking = true;
-      _csvData.clear(); // Clear any previously displayed CSV data
-      _gyroscopeNorms.clear(); // Clear gyroscope norms
-      _rowCount = 0; // Reset row count
-      _isAboveThreshold = false; // Reset threshold flag
-      _startTime = DateTime.now(); // Reset start time
+      _isTracking = true; // General flag indicating app is in tracking mode
+      _gyroscopeNorms.clear();
+      _rowCount = 0;
+      _currentSessionLinesWritten = 0; // Initialize for new session
     });
   }
 
-  void _processGyroscopeDataBatch() {
-    // Calculate the average of the second norms
+  void _processGyroscopeDataBatch(String sessionId) {
+    // Takes sessionId
+    final recorder = _activeRecorders[sessionId];
+    if (recorder == null || _gyroscopeNorms.isEmpty) return;
+
     double sumNorms = _gyroscopeNorms.fold(0, (sum, norm) => sum + norm);
     double averageNorm = sumNorms / _gyroscopeNorms.length;
-
-    print('Average second norm of $_batchSize rows: $averageNorm');
+    print(
+        'Session $sessionId: Average second norm of $_batchSize rows: $averageNorm');
 
     if (averageNorm > _threshold) {
-      setState(() {
-        _isAboveThreshold = true;
-      });
-
-      print('Average gyroscope movement exceeded threshold!');
+      print(
+          'Session $sessionId: Average gyroscope movement exceeded threshold!');
     } else {
-      setState(() {
-        _isAboveThreshold = false;
-      });
-
-      print('Average gyroscope movement below threshold.');
+      print('Session $sessionId: Average gyroscope movement below threshold.');
     }
+    recorder.saveBufferedData();
 
-    // Always save the accumulated sensor data for the batch by flushing the buffer
-    _sensorDataRecorder.saveBufferedData();
+    // Update lines written count
+    bool firstSave = _currentSessionLinesWritten == 0;
+    if (firstSave) {
+      // Assuming header is written by SensorDataRecorder on first save.
+      // If recorder.saveBufferedData() writes a header + _batchSize rows on first call,
+      // this logic is correct.
+      _currentSessionLinesWritten += 1; // For the header
+    }
+    _currentSessionLinesWritten +=
+        _batchSize; // Add the number of data rows in a batch
 
-    // Clear the list for the next batch
     _gyroscopeNorms.clear();
-    _rowCount = 0; // Reset row count for the next batch
+    _rowCount = 0;
+
+    if (mounted) {
+      setState(() {
+        // This setState is to update the UI for the new indicator based on _currentSessionLinesWritten
+      });
+    }
   }
 
   Future<void> _loadCSVData() async {
@@ -751,277 +814,276 @@ class _SensorScreenState extends State<SensorScreen> {
 
   void _stopTracking() async {
     print('Stop button pressed');
-
-    // Stop sensors and update UI
-    SensorChannel.stopSensors();
-    _accelerometerSubscription?.cancel();
-    _gyroscopeSubscription?.cancel();
-
-    // Ensure _currentSessionId is available
     if (_currentSessionId == null) {
-      print(
-          'Error: _currentSessionId is null when trying to stop tracking. This should not happen.');
-      // Handle this error appropriately, maybe show a message to the user
-      // For now, we might create a fallback or prevent further action.
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              'Error: Critical session identifier missing. Cannot finalize session.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      print('Error: No current recording session ID to stop.');
       setState(() {
-        // Reset tracking state if possible
         _isTracking = false;
       });
       return;
     }
 
-    // Get the file path for this session before stopping recording
-    // This should now use the correct sessionId implicitly via the recorder's state
-    final filePath = await _sensorDataRecorder.getCurrentSessionFilePath();
+    final sessionIdToStop = _currentSessionId!;
+    final recorder = _activeRecorders[sessionIdToStop];
+
+    if (recorder == null) {
+      print('Error: No active recorder found for session $sessionIdToStop.');
+      setState(() {
+        _isTracking = false;
+        _currentSessionId = null;
+      });
+      return;
+    }
+
+    SensorChannel.stopSensors(); // Stop native sensors first
+    _accelerometerSubscription?.cancel();
+
+    final filePath = await recorder.getCurrentSessionFilePath();
+    await recorder
+        .stopRecording(); // Stop this specific recorder (flushes and closes its file)
 
     final session = SessionStatus(
-      sessionId:
-          _currentSessionId!, // <-- MODIFIED: Use the stored _currentSessionId
-      startTime: _startTime!,
+      sessionId: sessionIdToStop,
+      startTime: _startTime!, // Use the start time for this specific session
       endTime: DateTime.now(),
       isWaitingForNetwork: !_hasNetworkConnection,
       filePath: filePath,
+      csvLines: null, // Will be read in _uploadCSVToServer if needed
+      lastUploadedBatchIndex: 0,
     );
 
-    // Update UI state and add session card immediately
     setState(() {
-      _isTracking = false;
-      _sessions.insert(0, session);
-      // _currentSessionId = null; // Optionally clear it now, or wait until a new session starts
+      _isTracking = false; // No *live* recording now
+      _sessions.insert(0, session); // Add to UI list
+      _currentSessionId = null; // Clear current live recording ID
+      _startTime = null;
+      _currentSessionLinesWritten =
+          0; // Reset on new session start is sufficient
     });
 
-    // Always stop recording and save data, regardless of network state
-    await _sensorDataRecorder
-        .stopRecording(); // stopRecording should handle the current session
-
-    if (filePath == null) {
-      setState(() {
-        session.isComplete = true;
-        session.results = {
-          'error':
-              'Initial file path null - Recording started improperly or file path not retrieved from native module.',
-          'total_windows_processed': 0,
-          'basal_metabolic_rate': 0,
-          'gait_cycles': 0,
-          'results': []
-        };
-      });
-      return;
+    // Initiate upload if network is available
+    if (_hasNetworkConnection) {
+      await _uploadCSVToServer(session);
+    } else {
+      print("No network. Session $sessionIdToStop will wait for upload.");
     }
-
-    final file = File(filePath);
-    if (!await file.exists()) {
-      setState(() {
-        session.isComplete = true;
-        session.results = {
-          'error': 'No data file found',
-          'total_windows_processed': 0,
-          'basal_metabolic_rate': 0,
-          'gait_cycles': 0,
-          'results': []
-        };
-      });
-      return;
-    }
-
-    // Read CSV file line-by-line
-    List<String> csvLines = await file.readAsLines();
-
-    if (csvLines.length <= 1) {
-      setState(() {
-        session.isComplete = true;
-        session.results = {
-          'error': 'No data recorded',
-          'total_windows_processed': 0,
-          'basal_metabolic_rate': 0,
-          'gait_cycles': 0,
-          'results': []
-        };
-      });
-      return;
-    }
-
-    // Store the CSV lines in the session
-    session.csvLines = csvLines;
-
-    // If no network connection, keep the session in waiting state and return early
-    if (!_hasNetworkConnection) {
-      setState(() {
-        session.isWaitingForNetwork = true;
-      });
-      return;
-    }
-
-    // Start upload with progress bar
-    await _uploadCSVToServer(session);
   }
 
   Future<void> _uploadCSVToServer(SessionStatus session) async {
-    if (!_hasNetworkConnection) {
-      setState(() {
-        session.isWaitingForNetwork = true;
-      });
+    if (!_hasNetworkConnection && !session.isWaitingForNetwork) {
+      // This check might be redundant if _resumeWaitingUploads already cleared isWaitingForNetwork
+      // but good for direct calls or other edge cases.
+      if (mounted) {
+        setState(() {
+          session.isWaitingForNetwork = true;
+        });
+      }
+      return;
+    }
+    // If we are here, we intend to try, so clear waiting status unless an error sets it back.
+    // However, the primary set to false is now in _resumeWaitingUploads.
+    // If called directly, ensure isWaitingForNetwork is handled.
+    if (session.isWaitingForNetwork) {
+      // If it's still marked as waiting, means we should try.
+      if (mounted) setState(() => session.isWaitingForNetwork = false);
+    }
+
+    String? userEmail;
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      userEmail = await authService.getCurrentUserEmail();
+    } catch (e) {
+      print(
+          "❌ Network error getting user email for session ${session.sessionId}: $e");
+      if (mounted) {
+        setState(() {
+          session.isWaitingForNetwork = true; // Set to wait for network
+          session.isProcessing = false;
+          session.isProcessingEnergyExpenditure = false;
+        });
+      }
+      return; // Exit if email cannot be fetched due to network
+    }
+
+    if (userEmail == null) {
+      print(
+          "❌ No user email retrieved for session ${session.sessionId}. Cannot upload.");
+      if (mounted) {
+        setState(() {
+          session.isComplete = true;
+          session.results = {
+            'error': 'User not logged in or email not available, cannot upload.'
+          };
+          _activeRecorders.remove(session.sessionId);
+          session.isProcessing = false;
+          session.isProcessingEnergyExpenditure = false;
+        });
+      }
       return;
     }
 
     try {
-      // Get the current user's email
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final userEmail = await authService.getCurrentUserEmail();
-
-      if (userEmail == null) {
-        print("❌ No user email found. Please ensure user is logged in.");
-        return;
-      }
-
-      // If we don't have the CSV lines stored, read them from the file
-      if (session.csvLines == null && session.filePath != null) {
-        final file = File(session.filePath!);
-        if (!await file.exists()) {
-          print('CSV file does not exist');
-          setState(() {
-            session.isComplete = true;
-            session.results = {
-              'error': 'No data file found',
-              'total_windows_processed': 0,
-              'basal_metabolic_rate': 0,
-              'gait_cycles': 0,
-              'results': []
-            };
-          });
-          return;
-        }
-
-        // Read CSV file line-by-line and store in session
-        session.csvLines = await file.readAsLines();
-      }
-
-      if (session.csvLines!.length <= 1) {
-        print("❌ CSV file contains no data.");
+      // Ensure filePath exists in session object
+      if (session.filePath == null) {
+        print(
+            "❌ File path is null for session ${session.sessionId}. Cannot upload.");
         setState(() {
           session.isComplete = true;
-          session.results = {
-            'error': 'No data recorded',
-            'total_windows_processed': 0,
-            'basal_metabolic_rate': 0,
-            'gait_cycles': 0,
-            'results': []
-          };
+          session.results = {'error': 'File path missing, cannot upload.'};
+          _activeRecorders.remove(session.sessionId); // Clean up recorder
         });
         return;
       }
 
-      // Extract header and data separately
-      String header = session.csvLines!.first;
-      List<String> dataRows = session.csvLines!.sublist(1); // Skip header row
+      final file = File(session.filePath!); // Use the path from SessionStatus
+      if (!await file.exists()) {
+        print(
+            'CSV file does not exist at ${session.filePath} for session ${session.sessionId}');
+        setState(() {
+          session.isComplete = true;
+          session.results = {'error': 'No data file found for upload.'};
+          _activeRecorders.remove(session.sessionId); // Clean up recorder
+        });
+        return;
+      }
 
-      // Define batch size
+      if (session.csvLines == null) {
+        // Read lines if not already in SessionStatus (e.g. on resume)
+        session.csvLines = await file.readAsLines();
+      }
+
+      // Check if the session is too short (less than 250 total lines, including header)
+      if (session.csvLines!.length < 250) {
+        print(
+            "❌ CSV file for session ${session.sessionId} is too short (less than 250 rows). Actual: ${session.csvLines!.length} rows.");
+        if (mounted) {
+          // Ensure widget is still mounted
+          setState(() {
+            session.isComplete = true;
+            session.results = {'error': 'Session too short for analysis'};
+            _activeRecorders.remove(session.sessionId);
+            // Ensure other processing flags are false
+            session.isProcessing = false;
+            session.isProcessingEnergyExpenditure = false;
+            session.uploadProgress = 0.0; // Reset progress
+          });
+        }
+        return; // Exit before attempting any network upload
+      }
+
+      String header = session.csvLines!.first;
+      List<String> dataRows = session.csvLines!.sublist(1);
       int batchSize = 200;
       int totalBatches = (dataRows.length / batchSize).ceil();
 
-      // Start from the last uploaded batch
-      for (int i = session.lastUploadedBatchIndex * batchSize;
-          i < dataRows.length;
-          i += batchSize) {
-        // Check network connection before each batch
+      setState(() {
+        // Initial state for upload start
+        session.isProcessing = false; // Explicitly false for pure upload phase
+        session.uploadProgress = 0.0;
+        session.isProcessingEnergyExpenditure = false; // Not yet in this phase
+      });
+
+      for (int batchStartIndex = session.lastUploadedBatchIndex * batchSize;
+          batchStartIndex < dataRows.length;
+          batchStartIndex += batchSize) {
         if (!_hasNetworkConnection) {
           setState(() {
             session.isWaitingForNetwork = true;
-            session.lastUploadedBatchIndex =
-                i ~/ batchSize; // Save current batch index
+            session.lastUploadedBatchIndex = batchStartIndex ~/ batchSize;
+            session.isProcessing = false; // Paused processing/uploading
           });
+          print("Network lost during upload of ${session.sessionId}. Pausing.");
           return;
         }
 
-        List<String> batch =
-            dataRows.sublist(i, (i + batchSize).clamp(0, dataRows.length));
+        List<String> batch = dataRows.sublist(batchStartIndex,
+            (batchStartIndex + batchSize).clamp(0, dataRows.length));
         String batchCsv = "$header\n${batch.join("\n")}";
-
         final Map<String, dynamic> payload = {
           "csv_data": batchCsv,
           "user_email": userEmail,
           "session_id": session.sessionId
         };
-
         final String lambdaEndpoint = ApiConfig.saveRawSensorData;
 
         print(
-            "📤 Uploading batch ${i ~/ batchSize + 1}/$totalBatches with ${batch.length} rows");
-
-        final response = await http.post(
-          Uri.parse(lambdaEndpoint),
-          headers: {"Content-Type": "application/json"},
-          body: jsonEncode(payload),
-        );
+            "📤 Uploading batch ${batchStartIndex ~/ batchSize + 1}/$totalBatches for ${session.sessionId}");
+        final response = await http.post(Uri.parse(lambdaEndpoint),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode(payload));
 
         if (response.statusCode == 200) {
-          print("✅ Batch ${i ~/ batchSize + 1} uploaded successfully!");
-
-          // Update session progress
-          setState(() {
-            session.uploadProgress = (i ~/ batchSize + 1) / totalBatches;
-            session.lastUploadedBatchIndex = i ~/ batchSize + 1;
-          });
+          print(
+              "✅ Batch ${batchStartIndex ~/ batchSize + 1} for ${session.sessionId} uploaded successfully!");
+          if (mounted)
+            setState(() {
+              session.uploadProgress =
+                  (batchStartIndex ~/ batchSize + 1) / totalBatches;
+              session.lastUploadedBatchIndex = batchStartIndex ~/ batchSize + 1;
+            });
         } else {
           print(
-              "❌ Failed to upload batch ${i ~/ batchSize + 1}: ${response.body}");
-          setState(() {
-            session.isWaitingForNetwork = true;
-            session.lastUploadedBatchIndex =
-                i ~/ batchSize; // Save current batch index
-          });
+              "❌ Failed to upload batch ${batchStartIndex ~/ batchSize + 1} for ${session.sessionId}: ${response.body}");
+          if (mounted)
+            setState(() {
+              session.isWaitingForNetwork =
+                  true; // Assume network or temp server issue
+              session.lastUploadedBatchIndex = batchStartIndex ~/ batchSize;
+              session.isProcessing = false;
+            });
           return;
         }
       }
 
-      // Update session to processing state
-      setState(() {
-        session.isProcessing = true;
-        session.isProcessingEnergyExpenditure = true;
-      });
-
-      // Check network connection before processing energy expenditure
-      if (!_hasNetworkConnection) {
+      // Mark upload as 100% complete and allow UI to render this state
+      if (mounted) {
         setState(() {
-          session.isWaitingForNetwork = true;
-          session.isProcessing = false;
-          session.isProcessingEnergyExpenditure = false;
+          session.uploadProgress = 1.0;
+          session.isProcessing =
+              false; // Keep isProcessing false for this frame
+          session.isProcessingEnergyExpenditure =
+              false; // Not yet processing EE
         });
+      }
+
+      // Add a small delay to allow the 100% progress bar to render
+      await Future.delayed(const Duration(
+          milliseconds: 100)); // e.g., 50-100ms, adjusted to 100ms
+
+      // Now, transition to the energy expenditure processing state
+      if (mounted) {
+        setState(() {
+          session.isProcessing = true; // Now true for actual processing phase
+          session.isProcessingEnergyExpenditure = true;
+          // uploadProgress remains 1.0, but isProcessing=true will make bar indeterminate
+        });
+      }
+
+      if (!_hasNetworkConnection) {
+        if (mounted)
+          setState(() {
+            session.isWaitingForNetwork = true;
+            session.isProcessing = false; // EE processing paused
+            session.isProcessingEnergyExpenditure =
+                false; // Ensure this is false if waiting
+          });
+        print(
+            "Network lost before starting energy expenditure for ${session.sessionId}. Pausing.");
         return;
       }
 
-      // Process energy expenditure
       final results =
           await _processEnergyExpenditure(session.sessionId, userEmail);
+      if (mounted)
+        setState(() {
+          session.isComplete = true;
+          session.isProcessing = false;
+          session.isProcessingEnergyExpenditure = false;
+          session.results = results;
+          _activeRecorders
+              .remove(session.sessionId); // SUCCESS: Clean up recorder
+        });
 
-      // Update session as complete
-      setState(() {
-        session.isComplete = true;
-        session.isProcessing = false;
-        session.isProcessingEnergyExpenditure = false;
-        session.results = results;
-      });
-
-      // Delete the CSV file after successful upload and processing
-      try {
-        final filePath = await _sensorDataRecorder.getCurrentSessionFilePath();
-        if (filePath != null) {
-          final file = File(filePath);
-          await file.delete();
-          print("✅ Deleted CSV file for session ${session.sessionId}");
-        }
-      } catch (e) {
-        print("⚠️ Error deleting CSV file: $e");
-      }
-
-      // Show results dialog
+      // --- Show dialog and survey logic remains same ---
       if (mounted) {
         showDialog(
           context: context,
@@ -1038,7 +1100,6 @@ class _SensorScreenState extends State<SensorScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Title section with icon
                     Padding(
                       padding: const EdgeInsets.only(bottom: 16.0),
                       child: Row(
@@ -1055,7 +1116,6 @@ class _SensorScreenState extends State<SensorScreen> {
                         ],
                       ),
                     ),
-                    // Stats section
                     Card(
                       child: Padding(
                         padding: EdgeInsets.all(12.0),
@@ -1089,7 +1149,6 @@ class _SensorScreenState extends State<SensorScreen> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     SizedBox(height: 8),
-                    // Results list
                     Flexible(
                       child: Scrollbar(
                         thickness: 8,
@@ -1116,7 +1175,6 @@ class _SensorScreenState extends State<SensorScreen> {
                         ),
                       ),
                     ),
-                    // Close button
                     Padding(
                       padding: const EdgeInsets.only(top: 16.0),
                       child: Align(
@@ -1133,7 +1191,6 @@ class _SensorScreenState extends State<SensorScreen> {
             ),
           ),
         ).then((_) {
-          // Show survey when dialog is dismissed
           showModalBottomSheet(
             context: context,
             isScrollControlled: true,
@@ -1152,80 +1209,139 @@ class _SensorScreenState extends State<SensorScreen> {
         });
       }
     } catch (e) {
-      print("⚠️ Error uploading CSV: $e");
-      if (e.toString().contains('network') ||
-          e.toString().contains('connection')) {
+      print(
+          "⚠️ Error in _uploadCSVToServer for session ${session.sessionId}: $e");
+      if (mounted) {
         setState(() {
-          session.isWaitingForNetwork = true;
-          session.isProcessing = false;
-          session.isProcessingEnergyExpenditure = false;
+          if (e.toString().contains('network') ||
+              e.toString().contains('connection')) {
+            session.isWaitingForNetwork = true;
+            session.isProcessing = false;
+            session.isProcessingEnergyExpenditure = false;
+          } else {
+            // Generic error during upload/processing, mark as failed
+            session.isComplete = true;
+            session.isProcessing = false;
+            session.isProcessingEnergyExpenditure = false;
+            session.results = {
+              'error': 'Failed to upload/process session: ${e.toString()}'
+            };
+            _activeRecorders
+                .remove(session.sessionId); // FAILED: Clean up recorder
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content:
+                  Text('Error processing session ${session.sessionId}: $e'),
+              backgroundColor: Colors.red,
+            ));
+          }
         });
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error uploading data: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
       }
     }
   }
 
   Future<Map<String, dynamic>> _processEnergyExpenditure(
       String sessionId, String userEmail) async {
-    try {
-      print(
-          "🔄 Starting energy expenditure processing for session: $sessionId");
+    int retries = 0;
+    const int maxRetries = 3; // Try up to 3 times
+    const Duration retryDelay =
+        Duration(seconds: 5); // Wait 5 seconds between retries
 
-      final Map<String, dynamic> payload = {
-        "session_id": sessionId,
-        "user_email": userEmail
-      };
+    while (true) {
+      // Loop for retries
+      try {
+        print(
+            "🔄 Starting energy expenditure processing for session: $sessionId (Attempt ${retries + 1}/$maxRetries)");
 
-      final String fargateEndpoint = ApiConfig.energyExpenditureServiceUrl;
-
-      // Check network connection before making the request
-      if (!_hasNetworkConnection) {
-        throw Exception('No network connection');
-      }
-
-      final response = await http.post(
-        Uri.parse(fargateEndpoint),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(payload),
-      );
-
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        print("✅ Energy expenditure processing completed!");
-        print("📊 Results: ${responseData['results']}");
-
-        // Get basal metabolic rate from response
-        final basalRate = responseData['basal_metabolic_rate'] as num;
-
-        // Count actual gait cycles (EE values above basal rate)
-        final gaitCycles = responseData['results']
-            .where((result) => (result['energyExpenditure'] as num) > basalRate)
-            .length;
-
-        return {
-          'results': responseData['results'],
-          'basal_metabolic_rate': basalRate,
-          'gait_cycles': gaitCycles,
-          'total_windows_processed': responseData['results'].length,
+        final Map<String, dynamic> payload = {
+          "session_id": sessionId,
+          "user_email": userEmail
         };
-      } else {
-        print("❌ Failed to process energy expenditure: ${response.body}");
-        throw Exception('Failed to process energy expenditure');
+
+        final String fargateEndpoint = ApiConfig.energyExpenditureServiceUrl;
+
+        // Check network connection before making the request
+        if (!_hasNetworkConnection) {
+          // Throw a specific error or handle as needed if network is lost mid-retry
+          print(
+              "📞 Network connection lost before processing energy expenditure for session: $sessionId");
+          throw Exception('No network connection');
+        }
+
+        final response = await http.post(
+          Uri.parse(fargateEndpoint),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode(payload),
+        );
+
+        if (response.statusCode == 200) {
+          final responseData = jsonDecode(response.body);
+          print(
+              "✅ Energy expenditure processing completed for session: $sessionId!");
+          print("📊 Results: ${responseData['results']}");
+
+          final basalRate = responseData['basal_metabolic_rate'] as num;
+          final gaitCycles = responseData['results']
+              .where(
+                  (result) => (result['energyExpenditure'] as num) > basalRate)
+              .length;
+
+          return {
+            'results': responseData['results'],
+            'basal_metabolic_rate': basalRate,
+            'gait_cycles': gaitCycles,
+            'total_windows_processed': responseData['results'].length,
+          };
+        } else {
+          final responseBody = response.body;
+          print(
+              "❌ Failed to process energy expenditure for session $sessionId (Status ${response.statusCode}): $responseBody");
+
+          // Check if it's the specific error we want to retry
+          if (responseBody.contains(
+                  "No sensor data found or processed for this session.") &&
+              retries < maxRetries - 1) {
+            retries++;
+            print(
+                "⏳ Will retry energy expenditure for $sessionId after $retryDelay. Attempt ${retries + 1}/$maxRetries.");
+            await Future.delayed(retryDelay);
+            continue; // Go to the next iteration of the while loop
+          }
+          // If it's another error, or retries are exhausted, throw the exception
+          throw Exception(
+              'Failed to process energy expenditure after $maxRetries attempts or due to a non-retryable error.');
+        }
+      } catch (e) {
+        print(
+            "⚠️ Error processing energy expenditure for $sessionId (Attempt ${retries + 1}): $e");
+        // If it's a network error and we haven't exhausted retries for other reasons,
+        // the existing network handling in _uploadCSVToServer or _resumeWaitingUploads will likely take over.
+        // If retries for the specific "No sensor data" error are exhausted, or it's another type of error, rethrow.
+        if (e.toString().contains('No network connection')) {
+          // This will be caught by the calling function which should set isWaitingForNetwork
+          throw Exception('Network error during energy expenditure processing');
+        }
+
+        // If we've exhausted retries for "No sensor data" or it's another error, rethrow.
+        if (retries >= maxRetries - 1 ||
+            !e.toString().contains(
+                "No sensor data found or processed for this session.")) {
+          throw e; // Rethrow the original error to be handled by the caller
+        }
+        // If it IS the "No sensor data found" error and we haven't exhausted retries (this path might be redundant given the check above, but good for clarity)
+        // This specific path might not be hit if the primary check for "No sensor data" is in the `else` block of `statusCode == 200`.
+        // The logic primarily relies on the HTTP status code and response body check.
+        // This catch block is more for unexpected errors during the HTTP call itself (e.g., DNS resolution failure before getting a status code)
+
+        // Fallback retry for other exceptions if deemed necessary, but for now, focus on the specific API error response
+        // If retries < maxRetries -1 (and not a network error handled above):
+        // retries++;
+        // print("⏳ Will retry due to general error for $sessionId. Attempt ${retries + 1}/$maxRetries.");
+        // await Future.delayed(retryDelay);
+        // continue;
+
+        // For now, just rethrow if it's not explicitly handled for retry by the status code check.
+        throw e;
       }
-    } catch (e) {
-      print("⚠️ Error processing energy expenditure: $e");
-      // If it's a network error, we want to retry when network is restored
-      if (e.toString().contains('network') ||
-          e.toString().contains('connection')) {
-        throw Exception('Network error during energy expenditure processing');
-      }
-      throw e;
     }
   }
 
@@ -1241,142 +1357,133 @@ class _SensorScreenState extends State<SensorScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.sensors, color: lightPurple),
-                    SizedBox(width: 8),
-                    Text(
-                      'Live Sensor Data',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: textGray,
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        padding: EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.blue.withOpacity(0.3),
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(Icons.speed, color: Colors.blue, size: 20),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Accelerometer',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.blue,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              _accelerometerData.split(': ')[1],
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontFamily: 'monospace',
-                                color: Colors.blue.shade900,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        padding: EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.green.withOpacity(0.3),
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(Icons.rotate_right,
-                                    color: Colors.green, size: 20),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Gyroscope',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.green,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              _gyroscopeData.split(': ')[1],
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontFamily: 'monospace',
-                                color: Colors.green.shade900,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                if (_isAboveThreshold) ...[
-                  SizedBox(height: 16),
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.red.withOpacity(0.3)),
-                    ),
-                    child: Row(
+                    Row(
                       children: [
-                        Icon(Icons.warning_amber_rounded, color: Colors.red),
+                        Icon(Icons.sensors, color: lightPurple),
                         SizedBox(width: 8),
                         Text(
-                          'Movement threshold exceeded',
+                          'Live Sensor Data',
                           style: TextStyle(
-                            color: Colors.red,
-                            fontWeight: FontWeight.w500,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: textGray,
                           ),
                         ),
                       ],
                     ),
+                    SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Colors.blue.withOpacity(0.3),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.speed,
+                                        color: Colors.blue, size: 20),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Accelerometer',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.blue,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  _accelerometerData.split(': ')[1],
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontFamily: 'monospace',
+                                    color: Colors.blue.shade900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Colors.green.withOpacity(0.3),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.rotate_right,
+                                        color: Colors.green, size: 20),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Gyroscope',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.green,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  _gyroscopeData.split(': ')[1],
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontFamily: 'monospace',
+                                    color: Colors.green.shade900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (_currentSessionLinesWritten >= 400)
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: Icon(
+                    Icons.check_box_outlined,
+                    color: lightPurple,
+                    size: 24,
                   ),
-                ],
-              ],
-            ),
+                ),
+            ],
           ),
         ),
       );
@@ -1495,7 +1602,6 @@ class _SensorScreenState extends State<SensorScreen> {
                     setState(() {
                       if (_isTracking) {
                         _stopTracking();
-                        _isAboveThreshold = false;
                       } else {
                         _startTracking();
                       }
