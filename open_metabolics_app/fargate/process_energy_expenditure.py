@@ -204,10 +204,28 @@ def process_window(window: List[Dict[str, Any]], window_index: int, session_id: 
     print(f"Window end time: {window[-1]['Timestamp']['S']}")
 
     # Calculate energy expenditure for this window
-    ee_values = calculate_energy_expenditure(gyro_data, acc_data, window_time, user_email)
-    # Convert numpy float32 to regular Python float
-    ee_values = [float(value) for value in ee_values]
-    print(f"Window {window_index + 1} EE values: {ee_values}")
+    try:
+        ee_values = calculate_energy_expenditure(gyro_data, acc_data, window_time, user_email)
+        print(f"Raw ee_values from calculate_energy_expenditure: {ee_values}")
+        print(f"Type of ee_values: {type(ee_values)}")
+        
+        if ee_values is None:
+            print(f"WARNING: calculate_energy_expenditure returned None for window {window_index + 1}")
+            ee_values = [cur_basal]
+        else:
+            # Convert numpy float32 to regular Python float
+            try:
+                ee_values = [float(value) for value in ee_values]
+                print(f"Converted ee_values: {ee_values}")
+            except (ValueError, TypeError) as e:
+                print(f"ERROR: Failed to convert ee_values to float: {e}")
+                print(f"Problematic ee_values: {ee_values}")
+                ee_values = [cur_basal]
+    except Exception as e:
+        print(f"ERROR: Exception in calculate_energy_expenditure: {str(e)}")
+        ee_values = [cur_basal]
+
+    print(f"Final ee_values before processing: {ee_values}")
 
     results = []
     window_start_time = datetime.fromisoformat(window[0]['Timestamp']['S'].replace('Z', '+00:00'))
