@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -14,6 +15,7 @@ import android.hardware.SensorManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import java.io.File
 import java.io.FileWriter
@@ -59,6 +61,11 @@ class SensorRecordingService : Service(), SensorEventListener {
     private var lastGyroTimestamp: Long = 0
     private var lastAccelTimestamp: Long = 0
 
+    // Add SharedPreferences member
+    private lateinit var sharedPreferences: SharedPreferences
+
+    private var wakeLock: PowerManager.WakeLock? = null
+
     inner class LocalBinder : Binder() {
         fun getService(): SensorRecordingService = this@SensorRecordingService
     }
@@ -67,6 +74,13 @@ class SensorRecordingService : Service(), SensorEventListener {
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "sensor_recording_channel"
         private const val CHANNEL_NAME = "Sensor Recording"
+        private const val WAKE_LOCK_TAG = "OpenMetabolics::SensorWakeLock"
+
+        // SharedPreferences constants
+        private const val PREFS_NAME = "SensorServicePrefs"
+        private const val KEY_SESSION_ID = "lastSessionId"
+        private const val KEY_START_TIME = "lastStartTime"
+        private const val KEY_FILE_PATH = "lastFilePath"
 
         fun startService(context: Context, sessionId: String) {
             val intent =
@@ -83,35 +97,115 @@ class SensorRecordingService : Service(), SensorEventListener {
         fun stopService(context: Context) {
             val intent = Intent(context, SensorRecordingService::class.java)
             context.stopService(intent)
+
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            with(prefs.edit()) {
+                remove(KEY_SESSION_ID)
+                remove(KEY_START_TIME)
+                remove(KEY_FILE_PATH)
+                apply()
+            }
+            println("SensorService: stopService called, cleared persisted state.")
         }
     }
 
     override fun onCreate() {
         super.onCreate()
+        sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
+
+        // Initialize PowerManager and WakeLock
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock =
+                powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
+                    setReferenceCounted(false)
+                }
 
         // Initialize sensor manager
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 
-        // Start sensor listeners at 50Hz
+        // Start sensor listeners
         startSensors()
 
         // Initialize monitoring variables
         lastReportTime = System.currentTimeMillis()
         lastBufferSaveTime = System.currentTimeMillis()
+        println("SensorService: onCreate, WakeLock initialized.")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        intent?.let {
-            val newSessionId = it.getStringExtra("sessionId")
-            if (newSessionId != sessionId) {
-                sessionId = newSessionId
-                startTime = System.currentTimeMillis()
-                initializeCSV()
+        var explicitSessionId: String? = null
+        var isRestart = false
+
+        if (intent == null) {
+            isRestart = true
+            println("SensorService: Restarted by system.")
+            explicitSessionId = sharedPreferences.getString(KEY_SESSION_ID, null)
+            if (explicitSessionId != null) {
+                println(
+                        "SensorService: Restored sessionId $explicitSessionId from SharedPreferences."
+                )
+            } else {
+                println("SensorService: Could not restore sessionId. Stopping service.")
+                stopSelf()
+                return START_NOT_STICKY
             }
+        } else {
+            explicitSessionId = intent.getStringExtra("sessionId")
+            println("SensorService: Started with explicit sessionId $explicitSessionId.")
+        }
+
+        if (explicitSessionId != null) {
+            if (this.sessionId != explicitSessionId || !isFileInitialized) {
+                this.sessionId = explicitSessionId
+                this.startTime =
+                        if (isRestart) {
+                            sharedPreferences.getLong(KEY_START_TIME, System.currentTimeMillis())
+                        } else {
+                            System.currentTimeMillis()
+                        }
+                initializeCSV()
+
+                if (isFileInitialized) {
+                    with(sharedPreferences.edit()) {
+                        putString(KEY_SESSION_ID, this@SensorRecordingService.sessionId)
+                        putLong(KEY_START_TIME, this@SensorRecordingService.startTime)
+                        apply()
+                    }
+                    println("SensorService: Saved state for sessionId ${this.sessionId}.")
+
+                    // Acquire WakeLock now that initialization is successful
+                    if (wakeLock?.isHeld == false) {
+                        wakeLock?.acquire()
+                        println("SensorService: WakeLock acquired for session ${this.sessionId}.")
+                    }
+                } else {
+                    println(
+                            "SensorService: Failed to initialize CSV for sessionId ${this.sessionId}. State not saved. Stopping."
+                    )
+                    clearPersistedState()
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+            } else {
+                println(
+                        "SensorService: Already running with sessionId ${this.sessionId}. No re-initialization needed."
+                )
+                // Ensure WakeLock is held if service is already running for this session
+                if (isFileInitialized && wakeLock?.isHeld == false) {
+                    wakeLock?.acquire()
+                    println(
+                            "SensorService: WakeLock re-acquired for ongoing session ${this.sessionId}."
+                    )
+                }
+            }
+        } else {
+            println("SensorService: No sessionId provided. Stopping service.")
+            stopSelf()
+            return START_NOT_STICKY
         }
         return START_STICKY
     }
@@ -119,7 +213,8 @@ class SensorRecordingService : Service(), SensorEventListener {
     private fun initializeCSV() {
         try {
             if (sessionId == null) {
-                println("Error: sessionId is null")
+                println("Error: sessionId is null for initializeCSV")
+                isFileInitialized = false
                 return
             }
 
@@ -156,6 +251,7 @@ class SensorRecordingService : Service(), SensorEventListener {
             e.printStackTrace()
             println("Error initializing CSV: ${e.message}")
             isFileInitialized = false
+            currentFilePath = null
         }
     }
 
@@ -211,6 +307,18 @@ class SensorRecordingService : Service(), SensorEventListener {
             e.printStackTrace()
             println("Error in onDestroy: ${e.message}")
         }
+
+        // Release WakeLock
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
+            println("SensorService: WakeLock released.")
+        }
+
+        // The call to clearPersistedState() in stopService companion method is
+        // generally preferred for explicit stops.
+        // If you want to clear state when the service is destroyed for any reason:
+        // clearPersistedState()
+        println("SensorService: onDestroy called.")
     }
 
     override fun onSensorChanged(event: SensorEvent) {
@@ -232,7 +340,7 @@ class SensorRecordingService : Service(), SensorEventListener {
                         )
 
                 // Create CSV row using StringBuilder
-                stringBuilder.setLength(0) // Clear the buffer
+                stringBuilder.setLength(0)
                 stringBuilder
                         .append(timestampFormat.format(System.currentTimeMillis() / 1000.0))
                         .append(',')
@@ -333,5 +441,16 @@ class SensorRecordingService : Service(), SensorEventListener {
         val path = currentFilePath
         println("Getting current session file path: $path")
         return path
+    }
+
+    // Helper to clear persisted state if needed
+    private fun clearPersistedState() {
+        with(sharedPreferences.edit()) {
+            remove(KEY_SESSION_ID)
+            remove(KEY_START_TIME)
+            remove(KEY_FILE_PATH)
+            apply()
+        }
+        println("SensorService: Cleared persisted state.")
     }
 }

@@ -353,6 +353,9 @@ class _SensorScreenState extends State<SensorScreen> {
   int _selectedIndex = 0;
   bool _hasNetworkConnection = true;
 
+  String?
+      _currentSessionId; // <-- ADDED: To store the session ID from startTracking
+
   static const List<String> _titles = [
     'Open Metabolics',
     'Past Sessions',
@@ -533,22 +536,38 @@ class _SensorScreenState extends State<SensorScreen> {
 
     print('Start button pressed');
 
-    // Generate session ID first
     String? userEmail;
     try {
       userEmail = await _authService.getCurrentUserEmail();
     } catch (e) {
       print('Warning: Could not get user email (possibly offline): $e');
-      // Continue without user email - we'll use a timestamp-only session ID
     }
 
-    final sessionId = userEmail != null
+    // Generate session ID
+    final String newSessionId = userEmail != null
         ? '${DateTime.now().millisecondsSinceEpoch}_${userEmail.replaceAll('@', '_').replaceAll('.', '_')}'
         : '${DateTime.now().millisecondsSinceEpoch}_offline';
 
+    setState(() {
+      _currentSessionId =
+          newSessionId; // <-- MODIFIED: Store the generated sessionId
+    });
+
     // Set up recording first
     try {
-      await _sensorDataRecorder.startRecording(sessionId);
+      // Use the stored _currentSessionId
+      if (_currentSessionId == null) {
+        print('Error: _currentSessionId is null before starting recording.');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Error: Session ID not generated. Cannot start recording.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      await _sensorDataRecorder.startRecording(_currentSessionId!);
     } catch (e) {
       print('Error starting recording: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -562,7 +581,19 @@ class _SensorScreenState extends State<SensorScreen> {
 
     // Start sensors after recording is set up
     try {
-      await SensorChannel.startSensors(sessionId);
+      // Use the stored _currentSessionId
+      if (_currentSessionId == null) {
+        print('Error: _currentSessionId is null before starting sensors.');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Error: Session ID not generated. Cannot start sensors.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      await SensorChannel.startSensors(_currentSessionId!);
     } catch (e) {
       print('Error starting sensors: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -726,43 +757,56 @@ class _SensorScreenState extends State<SensorScreen> {
     _accelerometerSubscription?.cancel();
     _gyroscopeSubscription?.cancel();
 
-    // Create new session status
-    String? userEmail;
-    try {
-      userEmail = await _authService.getCurrentUserEmail();
-    } catch (e) {
-      print('Warning: Could not get user email (possibly offline): $e');
+    // Ensure _currentSessionId is available
+    if (_currentSessionId == null) {
+      print(
+          'Error: _currentSessionId is null when trying to stop tracking. This should not happen.');
+      // Handle this error appropriately, maybe show a message to the user
+      // For now, we might create a fallback or prevent further action.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Error: Critical session identifier missing. Cannot finalize session.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      setState(() {
+        // Reset tracking state if possible
+        _isTracking = false;
+      });
+      return;
     }
 
-    final sessionId = userEmail != null
-        ? '${DateTime.now().millisecondsSinceEpoch}_${userEmail.replaceAll('@', '_').replaceAll('.', '_')}'
-        : '${DateTime.now().millisecondsSinceEpoch}_offline';
-
     // Get the file path for this session before stopping recording
+    // This should now use the correct sessionId implicitly via the recorder's state
     final filePath = await _sensorDataRecorder.getCurrentSessionFilePath();
 
     final session = SessionStatus(
-      sessionId: sessionId,
+      sessionId:
+          _currentSessionId!, // <-- MODIFIED: Use the stored _currentSessionId
       startTime: _startTime!,
       endTime: DateTime.now(),
       isWaitingForNetwork: !_hasNetworkConnection,
-      filePath: filePath, // Store the file path in the session
+      filePath: filePath,
     );
 
     // Update UI state and add session card immediately
     setState(() {
       _isTracking = false;
       _sessions.insert(0, session);
+      // _currentSessionId = null; // Optionally clear it now, or wait until a new session starts
     });
 
     // Always stop recording and save data, regardless of network state
-    await _sensorDataRecorder.stopRecording();
+    await _sensorDataRecorder
+        .stopRecording(); // stopRecording should handle the current session
 
     if (filePath == null) {
       setState(() {
         session.isComplete = true;
         session.results = {
-          'error': 'No data file found',
+          'error':
+              'Initial file path null - Recording started improperly or file path not retrieved from native module.',
           'total_windows_processed': 0,
           'basal_metabolic_rate': 0,
           'gait_cycles': 0,
