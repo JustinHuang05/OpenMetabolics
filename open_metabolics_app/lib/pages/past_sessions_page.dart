@@ -19,83 +19,104 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   List<SessionSummary> _sessions = [];
   Map<String, bool> _surveyResponses = {};
   bool _isLoading = true;
+  bool _isFetchingMore = false;
   String? _errorMessage;
   bool _isNetworkError = false;
   final DateFormat _dateFormat = DateFormat('MMMM d, y');
   final DateFormat _timeFormat = DateFormat('HH:mm:ss');
 
+  final ScrollController _scrollController = ScrollController();
+  int _currentPage = 1;
+  bool _hasNextPage = true;
+  static const int _pageSize = 10;
+
   @override
   void initState() {
     super.initState();
-    _fetchPastSessions();
+    _fetchPastSessions(page: 1, isRefresh: true);
+    _scrollController.addListener(_onScroll);
   }
 
-  Future<void> _fetchPastSessions() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-      _isNetworkError = false;
-    });
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 200 &&
+        _hasNextPage &&
+        !_isLoading &&
+        !_isFetchingMore) {
+      _fetchPastSessions(page: _currentPage + 1);
+    }
+  }
+
+  Future<void> _fetchPastSessions(
+      {int page = 1, bool isRefresh = false}) async {
+    if (isRefresh) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+        _isNetworkError = false;
+        _sessions.clear();
+        _surveyResponses.clear();
+        _currentPage = 1;
+        _hasNextPage = true;
+      });
+    } else {
+      setState(() {
+        _isFetchingMore = true;
+        _errorMessage = null;
+      });
+    }
 
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
-
-      // First try to get user email - this will throw SocketException if no network
       final userEmail = await authService.getCurrentUserEmail();
 
-      // If we get here, we have network connection, now check if user is logged in
       if (userEmail == null) {
-        // Check if user is actually signed in
         final isSignedIn = await authService.isSignedIn();
-        if (!isSignedIn) {
-          throw Exception('User not logged in');
-        }
-        // If we get here, user is signed in but we couldn't get their email
+        if (!isSignedIn) throw Exception('User not logged in');
         throw Exception('Unable to get user information');
       }
 
-      // First get the sessions
       final sessionsResponse = await http.post(
         Uri.parse(ApiConfig.getPastSessionsSummary),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'user_email': userEmail,
+          'page': page,
+          'limit': _pageSize,
         }),
       );
 
       if (sessionsResponse.statusCode == 200) {
         final data = jsonDecode(sessionsResponse.body);
+        final newSessions = (data['sessions'] as List)
+            .map((session) => SessionSummary.fromJson(session))
+            .toList();
+
+        final bool hasNextPageFromApi = data['hasNextPage'] ?? false;
+        final int currentPageFromApi = data['currentPage'] ?? page;
+
         if (mounted) {
           setState(() {
-            _sessions = (data['sessions'] as List)
-                .map((session) => SessionSummary.fromJson(session))
-                .toList();
+            if (isRefresh) {
+              _sessions = newSessions;
+            } else {
+              _sessions.addAll(newSessions);
+            }
+            _currentPage = currentPageFromApi;
+            _hasNextPage = hasNextPageFromApi;
+
+            if (newSessions.isNotEmpty) {
+              _checkSurveyResponses(
+                  userEmail, newSessions.map((s) => s.sessionId).toList());
+            }
           });
-        }
-
-        // Then check survey responses with the actual session IDs
-        final surveyResponse = await http.post(
-          Uri.parse(ApiConfig.checkSurveyResponses),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'user_email': userEmail,
-            'session_ids': _sessions.map((s) => s.sessionId).toList(),
-          }),
-        );
-
-        if (surveyResponse.statusCode == 200) {
-          final surveyData = jsonDecode(surveyResponse.body);
-          if (mounted) {
-            setState(() {
-              _surveyResponses =
-                  Map<String, bool>.from(surveyData['surveyResponses']);
-              _isLoading = false;
-            });
-          }
-        } else {
-          final errorData = jsonDecode(surveyResponse.body);
-          throw Exception(
-              'Failed to check survey responses: ${errorData['error']}${errorData['details'] != null ? '\nDetails: ${errorData['details']}' : ''}');
         }
       } else {
         final errorData = jsonDecode(sessionsResponse.body);
@@ -105,7 +126,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     } on SocketException catch (e) {
       if (mounted) {
         setState(() {
-          _isLoading = false;
           _isNetworkError = true;
           _errorMessage = 'No internet connection';
         });
@@ -113,7 +133,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     } on amplify.NetworkException catch (e) {
       if (mounted) {
         setState(() {
-          _isLoading = false;
           _isNetworkError = true;
           _errorMessage = 'No internet connection';
         });
@@ -121,7 +140,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _isLoading = false;
           if (e.toString().contains('User not logged in')) {
             _errorMessage = 'Please log in to view your past sessions';
           } else if (e.toString().contains('Unable to get user information')) {
@@ -131,18 +149,27 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           }
         });
       }
-      print('Error fetching past sessions: $e');
+      print('Error fetching past sessions (page $page): $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isFetchingMore = false;
+        });
+      }
     }
   }
 
-  Future<void> _checkSurveyResponses(String userEmail) async {
+  Future<void> _checkSurveyResponses(
+      String userEmail, List<String> sessionIdsToCheck) async {
+    if (sessionIdsToCheck.isEmpty) return;
     try {
       final response = await http.post(
         Uri.parse(ApiConfig.checkSurveyResponses),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'user_email': userEmail,
-          'session_ids': _sessions.map((s) => s.sessionId).toList(),
+          'session_ids': sessionIdsToCheck,
         }),
       );
 
@@ -150,16 +177,25 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         final data = jsonDecode(response.body);
         if (mounted) {
           setState(() {
-            _surveyResponses = Map<String, bool>.from(data['surveyResponses']);
+            _surveyResponses
+                .addAll(Map<String, bool>.from(data['surveyResponses']));
           });
         }
       } else {
         final errorData = jsonDecode(response.body);
-        throw Exception(
+        print(
             'Failed to check survey responses: ${errorData['error']}${errorData['details'] != null ? '\nDetails: ${errorData['details']}' : ''}');
       }
     } catch (e) {
       print('Error checking survey responses: $e');
+    }
+  }
+
+  Future<void> _refreshSingleSessionSurveyStatus(String sessionId) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userEmail = await authService.getCurrentUserEmail();
+    if (userEmail != null && sessionId.isNotEmpty) {
+      _checkSurveyResponses(userEmail, [sessionId]);
     }
   }
 
@@ -173,9 +209,9 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     final Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
     final Color textGray = Color.fromRGBO(66, 66, 66, 1);
 
-    if (_isLoading) {
+    if (_isLoading && _sessions.isEmpty) {
       return Center(child: CircularProgressIndicator(color: lightPurple));
-    } else if (_isNetworkError) {
+    } else if (_isNetworkError && _sessions.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
@@ -206,7 +242,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
               ),
               SizedBox(height: 24),
               ElevatedButton(
-                onPressed: _fetchPastSessions,
+                onPressed: () => _fetchPastSessions(page: 1, isRefresh: true),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: lightPurple,
                   foregroundColor: textGray,
@@ -238,7 +274,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
               ),
               SizedBox(height: 16),
               ElevatedButton(
-                onPressed: _fetchPastSessions,
+                onPressed: () => _fetchPastSessions(page: 1, isRefresh: true),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: lightPurple,
                   foregroundColor: textGray,
@@ -249,7 +285,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           ),
         ),
       );
-    } else if (_sessions.isEmpty) {
+    } else if (_sessions.isEmpty && !_isLoading && !_isFetchingMore) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -273,11 +309,23 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     } else {
       return RefreshIndicator(
         color: lightPurple,
-        onRefresh: _fetchPastSessions,
+        onRefresh: () => _fetchPastSessions(page: 1, isRefresh: true),
         child: ListView.builder(
+          controller: _scrollController,
           padding: const EdgeInsets.all(16.0),
-          itemCount: _sessions.length,
+          itemCount: _sessions.length + (_hasNextPage ? 1 : 0),
           itemBuilder: (context, index) {
+            if (index == _sessions.length && _hasNextPage) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16.0),
+                child: Center(
+                    child: CircularProgressIndicator(color: lightPurple)),
+              );
+            }
+            if (index >= _sessions.length) {
+              return SizedBox.shrink();
+            }
+
             final session = _sessions[index];
             final date = DateTime.parse(session.timestamp);
             final hasFeedback = _surveyResponses[session.sessionId] ?? false;
@@ -297,8 +345,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                         ),
                       ),
                     ).then((_) {
-                      // Refresh survey responses when returning from session details
-                      _checkSurveyResponses(session.sessionId);
+                      _refreshSingleSessionSurveyStatus(session.sessionId);
                     });
                   },
                   child: Padding(

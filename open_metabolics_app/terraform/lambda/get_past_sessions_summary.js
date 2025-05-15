@@ -5,7 +5,10 @@ const dynamodb = new DynamoDBClient();
 
 exports.handler = async (event) => {
     try {
-        const { user_email } = JSON.parse(event.body);
+        const body = JSON.parse(event.body);
+        const { user_email } = body;
+        const page = parseInt(body.page) || 1;
+        const limit = parseInt(body.limit) || 10;
 
         if (!user_email) {
             return {
@@ -14,8 +17,9 @@ exports.handler = async (event) => {
             };
         }
 
-        // Query the energy expenditure results table for all sessions of this user
-        const queryParams = {
+        let allItems = [];
+        let lastEvaluatedKey = undefined;
+        const baseQueryParams = {
             TableName: process.env.RESULTS_TABLE,
             IndexName: 'UserEmailIndex',
             KeyConditionExpression: 'UserEmail = :email',
@@ -25,41 +29,76 @@ exports.handler = async (event) => {
             ScanIndexForward: false // Sort by timestamp in descending order
         };
 
-        console.log('Querying DynamoDB with params:', JSON.stringify(queryParams));
+        console.log('Fetching all measurements for user:', user_email, 'Page:', page, 'Limit:', limit);
 
-        const command = new QueryCommand(queryParams);
-        const result = await dynamodb.send(command);
-        console.log('DynamoDB query result:', JSON.stringify(result));
+        do {
+            const queryParams = { ...baseQueryParams };
+            if (lastEvaluatedKey) {
+                queryParams.ExclusiveStartKey = lastEvaluatedKey;
+            }
 
-        if (!result.Items || result.Items.length === 0) {
+            // console.log('Querying DynamoDB with params:', JSON.stringify(queryParams)); // Verbose
+            const command = new QueryCommand(queryParams);
+            const result = await dynamodb.send(command);
+            // console.log('DynamoDB query batch result items count:', result.Items ? result.Items.length : 0); // Verbose
+
+            if (result.Items) {
+                allItems.push(...result.Items);
+            }
+            lastEvaluatedKey = result.LastEvaluatedKey;
+
+        } while (lastEvaluatedKey);
+
+        console.log(`Fetched a total of ${allItems.length} measurement items for user ${user_email}.`);
+
+        if (allItems.length === 0) {
             return {
                 statusCode: 200,
-                body: JSON.stringify({ sessions: [] })
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                },
+                body: JSON.stringify({ 
+                    sessions: [],
+                    currentPage: page,
+                    hasNextPage: false,
+                    totalSessions: 0
+                })
             };
         }
 
         // Group results by session ID and count measurements
         const sessionSummaries = {};
-        result.Items.forEach(item => {
+        allItems.forEach(item => {
             const unmarshalledItem = unmarshall(item);
             const sessionId = unmarshalledItem.SessionId;
             if (!sessionSummaries[sessionId]) {
                 sessionSummaries[sessionId] = {
                     sessionId,
-                    timestamp: unmarshalledItem.Timestamp,
-                    measurementCount: 1
+                    // Use the timestamp of the first encountered measurement for that session
+                    // Since query is ScanIndexForward: false, this will be the latest timestamp for the session
+                    timestamp: unmarshalledItem.Timestamp, 
+                    measurementCount: 0 // Initialize, will be incremented below
                 };
-            } else {
-                sessionSummaries[sessionId].measurementCount++;
             }
+            // Increment count for every measurement item belonging to this session
+            sessionSummaries[sessionId].measurementCount++;
         });
-
+        
         // Convert sessions object to array and sort by timestamp (most recent first)
         const summariesArray = Object.values(sessionSummaries).sort((a, b) => 
             new Date(b.timestamp) - new Date(a.timestamp)
         );
 
-        console.log('Processed session summaries:', JSON.stringify(summariesArray));
+        console.log(`Processed ${summariesArray.length} total session summaries for user ${user_email}.`);
+
+        const startIndex = (page - 1) * limit;
+        const endIndex = page * limit;
+        const paginatedSummaries = summariesArray.slice(startIndex, endIndex);
+        const totalSessions = summariesArray.length;
+        const hasNextPage = endIndex < totalSessions;
+
+        console.log(`Returning page ${page} for user ${user_email} with ${paginatedSummaries.length} sessions. HasNextPage: ${hasNextPage}. Total sessions: ${totalSessions}`);
 
         return {
             statusCode: 200,
@@ -68,7 +107,10 @@ exports.handler = async (event) => {
                 'Access-Control-Allow-Origin': '*'
             },
             body: JSON.stringify({
-                sessions: summariesArray
+                sessions: paginatedSummaries,
+                currentPage: page,
+                hasNextPage: hasNextPage,
+                totalSessions: totalSessions // Useful for client-side display if needed
             })
         };
     } catch (error) {
