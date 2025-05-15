@@ -14,6 +14,7 @@ COPY main.py .
 # Copy data files
 COPY data_driven_ee_model.pkl .
 COPY pocket_motion_correction_model.pkl .
+
 # Add the current directory to Python path
 ENV PYTHONPATH=/app
 

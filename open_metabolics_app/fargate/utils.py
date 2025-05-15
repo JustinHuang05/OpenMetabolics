@@ -108,7 +108,11 @@ def processRawGait_model(data_array, start_ind, end_ind, weight, height, correct
     model_input = shift_flip_bin_gait.flatten()
 
     """Correct motion artifacts"""
-    est_artifact = correction_model.predict(np.insert(model_input, 0, dur_stride).reshape(1, -1)).flatten()
+    try:
+        est_artifact = correction_model.predict(np.insert(model_input, 0, dur_stride).reshape(1, -1)).flatten()
+    except Exception as e:
+        raise Exception(f"Error during correction_model.predict: {str(e)}. Input shape: {np.insert(model_input, 0, dur_stride).reshape(1, -1).shape}")
+    
     model_input = model_input - est_artifact
 
     gyro_x = model_input[:30]
@@ -133,7 +137,10 @@ def estimateMetabolics(model, time, gait_data, peak_index, weight, height, corre
         gait_stop_index = peak_index[i + 1]
         if (gait_stop_index - gait_start_index) <= stride_detect_window:
             model_input = processRawGait_model(gait_data, gait_start_index, gait_stop_index, weight, height, correction_model, None).reshape(1, -1)
-            ee_est = model.predict(model_input)[0]
+            try:
+                ee_est = model.predict(model_input)[0]
+            except Exception as e:
+                raise Exception(f"Error during data_driven_model.predict: {str(e)}. Input shape: {model_input.shape}")
             ee_all.append(ee_est)
             time_all.append(time[gait_start_index])
     return time_all, ee_all
