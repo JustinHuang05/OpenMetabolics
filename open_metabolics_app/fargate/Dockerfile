@@ -8,8 +8,8 @@ RUN pip install gunicorn
 
 # Copy Python files
 COPY process_energy_expenditure.py .
+COPY process_energy_expenditure_worker.py .
 COPY utils.py .
-COPY main.py .
 
 # Copy data files
 COPY data_driven_ee_model.pkl .
@@ -18,4 +18,9 @@ COPY pocket_motion_correction_model.pkl .
 # Add the current directory to Python path
 ENV PYTHONPATH=/app
 
-CMD ["gunicorn", "--bind", "0.0.0.0:80", "process_energy_expenditure:app"] 
+# Create a script to choose which service to run
+COPY start.sh .
+RUN chmod +x start.sh
+
+# Use the start script as the entry point
+CMD ["./start.sh"] 

@@ -140,6 +140,55 @@ resource "aws_dynamodb_table" "user_survey_responses" {
   }
 }
 
+# SQS Queue for processing jobs
+resource "aws_sqs_queue" "processing_queue" {
+  name                      = "energy-expenditure-processing-queue"
+  visibility_timeout_seconds = 3600  # 1 hour
+  message_retention_seconds = 86400  # 1 day
+  delay_seconds             = 0
+  receive_wait_time_seconds = 20     # Long polling
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.processing_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Environment = var.environment
+    Service     = "energy-expenditure"
+  }
+}
+
+# Dead Letter Queue for failed processing jobs
+resource "aws_sqs_queue" "processing_dlq" {
+  name                      = "energy-expenditure-processing-dlq"
+  message_retention_seconds = 1209600  # 14 days
+  delay_seconds             = 0
+  receive_wait_time_seconds = 0
+
+  tags = {
+    Environment = var.environment
+    Service     = "energy-expenditure"
+  }
+}
+
+# DynamoDB table for processing status
+resource "aws_dynamodb_table" "processing_status" {
+  name           = "energy-expenditure-processing-status"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "SessionId"
+
+  attribute {
+    name = "SessionId"
+    type = "S"
+  }
+
+  tags = {
+    Environment = var.environment
+    Service     = "energy-expenditure"
+  }
+}
+
 # Lambda IAM Role
 resource "aws_iam_role" "lambda_role" {
   name = "${var.project_name}-lambda-role"
@@ -921,7 +970,7 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
-# ECS Task Definition
+# ECS Task Definition for API service
 resource "aws_ecs_task_definition" "energy_expenditure" {
   family                   = "${var.project_name}-energy-expenditure"
   network_mode            = "awsvpc"
@@ -945,6 +994,10 @@ resource "aws_ecs_task_definition" "energy_expenditure" {
       ]
       environment = [
         {
+          name  = "SERVICE_TYPE"
+          value = "api"
+        },
+        {
           name  = "RAW_SENSOR_TABLE"
           value = aws_dynamodb_table.raw_sensor_data.name
         },
@@ -955,6 +1008,14 @@ resource "aws_ecs_task_definition" "energy_expenditure" {
         {
           name  = "USER_PROFILES_TABLE"
           value = aws_dynamodb_table.user_profiles.name
+        },
+        {
+          name  = "PROCESSING_STATUS_TABLE"
+          value = aws_dynamodb_table.processing_status.name
+        },
+        {
+          name  = "PROCESSING_QUEUE_URL"
+          value = aws_sqs_queue.processing_queue.url
         }
       ]
       logConfiguration = {
@@ -1102,12 +1163,28 @@ resource "aws_iam_role_policy" "ecs_task_role_policy" {
         Action = [
           "dynamodb:Query",
           "dynamodb:PutItem",
-          "dynamodb:GetItem"
+          "dynamodb:GetItem",
+          "dynamodb:UpdateItem"
         ]
         Resource = [
           aws_dynamodb_table.raw_sensor_data.arn,
           aws_dynamodb_table.energy_expenditure_results.arn,
-          aws_dynamodb_table.user_profiles.arn
+          aws_dynamodb_table.user_profiles.arn,
+          aws_dynamodb_table.processing_status.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage",
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:ChangeMessageVisibility"
+        ]
+        Resource = [
+          aws_sqs_queue.processing_queue.arn,
+          aws_sqs_queue.processing_dlq.arn
         ]
       }
     ]
@@ -1335,4 +1412,120 @@ resource "aws_route_table_association" "private" {
 resource "aws_route_table_association" "private_2" {
   subnet_id      = aws_subnet.private_2.id
   route_table_id = aws_route_table.private.id
+}
+
+# Update IAM policy for the Fargate task to allow SQS operations
+resource "aws_iam_policy" "task_policy" {
+  name        = "energy-expenditure-task-policy"
+  description = "Policy for energy expenditure processing tasks"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query",
+          "dynamodb:Scan"
+        ]
+        Resource = [
+          aws_dynamodb_table.raw_sensor_data.arn,
+          aws_dynamodb_table.user_profiles.arn,
+          aws_dynamodb_table.energy_expenditure_results.arn,
+          aws_dynamodb_table.processing_status.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage",
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:ChangeMessageVisibility"
+        ]
+        Resource = [
+          aws_sqs_queue.processing_queue.arn,
+          aws_sqs_queue.processing_dlq.arn
+        ]
+      }
+    ]
+  })
+}
+
+# ECS Task Definition for Worker service
+resource "aws_ecs_task_definition" "energy_expenditure_worker" {
+  family                   = "energy-expenditure-worker"
+  requires_compatibilities = ["FARGATE"]
+  network_mode            = "awsvpc"
+  cpu                     = 256
+  memory                  = 512
+  execution_role_arn      = aws_iam_role.ecs_task_execution_role.arn
+  task_role_arn           = aws_iam_role.ecs_task_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name  = "energy-expenditure-worker"
+      image = "${aws_ecr_repository.energy_expenditure_service.repository_url}:latest"
+      environment = [
+        {
+          name  = "SERVICE_TYPE"
+          value = "worker"
+        },
+        {
+          name  = "RAW_SENSOR_TABLE"
+          value = aws_dynamodb_table.raw_sensor_data.name
+        },
+        {
+          name  = "USER_PROFILES_TABLE"
+          value = aws_dynamodb_table.user_profiles.name
+        },
+        {
+          name  = "RESULTS_TABLE"
+          value = aws_dynamodb_table.energy_expenditure_results.name
+        },
+        {
+          name  = "PROCESSING_STATUS_TABLE"
+          value = aws_dynamodb_table.processing_status.name
+        },
+        {
+          name  = "PROCESSING_QUEUE_URL"
+          value = aws_sqs_queue.processing_queue.url
+        }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/energy-expenditure-worker"
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
+    }
+  ])
+}
+
+# Create CloudWatch log group for worker
+resource "aws_cloudwatch_log_group" "worker" {
+  name              = "/ecs/energy-expenditure-worker"
+  retention_in_days = 30
+}
+
+# Create ECS service for worker
+resource "aws_ecs_service" "worker" {
+  name            = "energy-expenditure-worker"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.energy_expenditure_worker.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = [aws_subnet.private.id, aws_subnet.private_2.id]
+    security_groups  = [aws_security_group.ecs_tasks.id]
+    assign_public_ip = false
+  }
 } 

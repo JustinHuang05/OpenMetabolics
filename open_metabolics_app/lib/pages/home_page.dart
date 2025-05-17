@@ -1128,15 +1128,15 @@ class _SensorScreenState extends State<SensorScreen> {
                             ),
                             SizedBox(height: 8),
                             Text(
-                              'Total Windows: ${results['total_windows_processed']}',
+                              'Total Windows: ${(results['total_windows_processed'] ?? 0)}',
                               style: Theme.of(context).textTheme.bodyLarge,
                             ),
                             Text(
-                              'Basal Rate: ${results['basal_metabolic_rate'].toStringAsFixed(2)} W',
+                              'Basal Rate: ${(results['basal_metabolic_rate'] ?? 0.0).toStringAsFixed(2)} W',
                               style: Theme.of(context).textTheme.bodyLarge,
                             ),
                             Text(
-                              'Gait Cycles: ${results['gait_cycles']}',
+                              'Gait Cycles: ${(results['gait_cycles'] ?? 0)}',
                               style: Theme.of(context).textTheme.bodyLarge,
                             ),
                           ],
@@ -1156,19 +1156,29 @@ class _SensorScreenState extends State<SensorScreen> {
                         thumbVisibility: true,
                         child: ListView.builder(
                           shrinkWrap: true,
-                          itemCount: results['results'].length,
+                          itemCount: (results['results'] ?? []).length,
                           itemBuilder: (context, index) {
-                            final result = results['results'][index];
-                            final timestamp =
-                                DateTime.parse(result['timestamp']);
-                            final isGaitCycle =
-                                (result['energyExpenditure'] as num) >
-                                    results['basal_metabolic_rate'];
-                            final ee = result['energyExpenditure'] as num;
+                            final result = (results['results'] ?? [])[index];
+                            print('Result: $result'); // Debug print
+                            final timestampStr = result['timestamp'] ?? '';
+                            DateTime? timestamp;
+                            try {
+                              timestamp = DateTime.tryParse(timestampStr);
+                            } catch (_) {
+                              timestamp = null;
+                            }
+                            // Use the correct field name from backend: 'EnergyExpenditure'
+                            final eeStr = result['EnergyExpenditure']?['N'];
+                            final eeValue = (eeStr is String)
+                                ? double.tryParse(eeStr) ?? 0.0
+                                : 0.0;
+                            final bmr = results['basal_metabolic_rate'] ?? 0.0;
+                            final isGaitCycle = eeValue > bmr;
 
                             return EnergyExpenditureCard(
-                              timestamp: timestamp,
-                              energyExpenditure: ee.toDouble(),
+                              timestamp: timestamp ??
+                                  DateTime.fromMillisecondsSinceEpoch(0),
+                              energyExpenditure: eeValue.toDouble(),
                               isGaitCycle: isGaitCycle,
                             );
                           },
@@ -1241,107 +1251,110 @@ class _SensorScreenState extends State<SensorScreen> {
 
   Future<Map<String, dynamic>> _processEnergyExpenditure(
       String sessionId, String userEmail) async {
-    int retries = 0;
-    const int maxRetries = 3; // Try up to 3 times
-    const Duration retryDelay =
-        Duration(seconds: 5); // Wait 5 seconds between retries
+    // New async Fargate flow
+    final String fargateBaseUrl = ApiConfig.energyExpenditureServiceUrl;
+    final String processUrl = fargateBaseUrl.endsWith('/')
+        ? fargateBaseUrl + 'process'
+        : fargateBaseUrl + '/process';
+    final String statusUrl = fargateBaseUrl.endsWith('/')
+        ? fargateBaseUrl + 'status/'
+        : fargateBaseUrl + '/status/';
+    final String resultsUrl = fargateBaseUrl.endsWith('/')
+        ? fargateBaseUrl + 'results/'
+        : fargateBaseUrl + '/results/';
 
-    while (true) {
-      // Loop for retries
-      try {
-        print(
-            "🔄 Starting energy expenditure processing for session: $sessionId (Attempt ${retries + 1}/$maxRetries)");
-
-        final Map<String, dynamic> payload = {
+    try {
+      // 1. Queue the job
+      final response = await http.post(
+        Uri.parse(processUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
           "session_id": sessionId,
-          "user_email": userEmail
-        };
+          "user_email": userEmail,
+        }),
+      );
 
-        final String fargateEndpoint = ApiConfig.energyExpenditureServiceUrl;
-
-        // Check network connection before making the request
-        if (!_hasNetworkConnection) {
-          // Throw a specific error or handle as needed if network is lost mid-retry
-          print(
-              "📞 Network connection lost before processing energy expenditure for session: $sessionId");
-          throw Exception('No network connection');
-        }
-
-        final response = await http.post(
-          Uri.parse(fargateEndpoint),
-          headers: {"Content-Type": "application/json"},
-          body: jsonEncode(payload),
-        );
-
-        if (response.statusCode == 200) {
-          final responseData = jsonDecode(response.body);
-          print(
-              "✅ Energy expenditure processing completed for session: $sessionId!");
-          print("📊 Results: ${responseData['results']}");
-
-          final basalRate = responseData['basal_metabolic_rate'] as num;
-          final gaitCycles = responseData['results']
-              .where(
-                  (result) => (result['energyExpenditure'] as num) > basalRate)
-              .length;
-
-          return {
-            'results': responseData['results'],
-            'basal_metabolic_rate': basalRate,
-            'gait_cycles': gaitCycles,
-            'total_windows_processed': responseData['results'].length,
-          };
-        } else {
-          final responseBody = response.body;
-          print(
-              "❌ Failed to process energy expenditure for session $sessionId (Status ${response.statusCode}): $responseBody");
-
-          // Check if it's the specific error we want to retry
-          if (responseBody.contains(
-                  "No sensor data found or processed for this session.") &&
-              retries < maxRetries - 1) {
-            retries++;
-            print(
-                "⏳ Will retry energy expenditure for $sessionId after $retryDelay. Attempt ${retries + 1}/$maxRetries.");
-            await Future.delayed(retryDelay);
-            continue; // Go to the next iteration of the while loop
-          }
-          // If it's another error, or retries are exhausted, throw the exception
-          throw Exception(
-              'Failed to process energy expenditure after $maxRetries attempts or due to a non-retryable error.');
-        }
-      } catch (e) {
-        print(
-            "⚠️ Error processing energy expenditure for $sessionId (Attempt ${retries + 1}): $e");
-        // If it's a network error and we haven't exhausted retries for other reasons,
-        // the existing network handling in _uploadCSVToServer or _resumeWaitingUploads will likely take over.
-        // If retries for the specific "No sensor data" error are exhausted, or it's another type of error, rethrow.
-        if (e.toString().contains('No network connection')) {
-          // This will be caught by the calling function which should set isWaitingForNetwork
-          throw Exception('Network error during energy expenditure processing');
-        }
-
-        // If we've exhausted retries for "No sensor data" or it's another error, rethrow.
-        if (retries >= maxRetries - 1 ||
-            !e.toString().contains(
-                "No sensor data found or processed for this session.")) {
-          throw e; // Rethrow the original error to be handled by the caller
-        }
-        // If it IS the "No sensor data found" error and we haven't exhausted retries (this path might be redundant given the check above, but good for clarity)
-        // This specific path might not be hit if the primary check for "No sensor data" is in the `else` block of `statusCode == 200`.
-        // The logic primarily relies on the HTTP status code and response body check.
-        // This catch block is more for unexpected errors during the HTTP call itself (e.g., DNS resolution failure before getting a status code)
-
-        // Fallback retry for other exceptions if deemed necessary, but for now, focus on the specific API error response
-        // If retries < maxRetries -1 (and not a network error handled above):
-        // retries++;
-        // print("⏳ Will retry due to general error for $sessionId. Attempt ${retries + 1}/$maxRetries.");
-        // await Future.delayed(retryDelay);
-        // continue;
-
-        // For now, just rethrow if it's not explicitly handled for retry by the status code check.
-        throw e;
+      if (response.statusCode != 202) {
+        final responseBody = response.body;
+        print("❌ Failed to queue processing: $responseBody");
+        throw Exception('Failed to queue processing: $responseBody');
       }
+
+      // 2. Start polling status
+      bool isComplete = false;
+      bool isFailed = false;
+      String? errorMsg;
+      double progress = 0.0;
+      int pollCount = 0;
+      const int maxPolls = 120; // 6 minutes max
+      const Duration pollInterval = Duration(seconds: 3);
+      Map<String, dynamic>? statusData;
+
+      while (!isComplete && !isFailed && pollCount < maxPolls) {
+        await Future.delayed(pollInterval);
+        pollCount++;
+        final statusResp = await http.get(Uri.parse(statusUrl + sessionId));
+        if (statusResp.statusCode == 200) {
+          statusData = jsonDecode(statusResp.body);
+          if (statusData != null) {
+            final status = statusData['status'];
+            progress = (statusData['progress'] ?? 0.0).toDouble();
+            errorMsg = statusData['error'];
+
+            if (status == 'completed') {
+              isComplete = true;
+              break;
+            } else if (status == 'failed') {
+              isFailed = true;
+              break;
+            }
+          } else {
+            print(
+                'Status response body was null or not JSON: \\${statusResp.body}');
+          }
+        } else {
+          print('Error polling status: \\${statusResp.body}');
+        }
+      }
+
+      if (isFailed) {
+        return {'error': errorMsg ?? 'Processing failed. Please try again.'};
+      }
+      if (!isComplete) {
+        return {'error': 'Processing timed out. Please try again.'};
+      }
+
+      // 3. Fetch results
+      final resultsResp = await http.get(Uri.parse(resultsUrl + sessionId));
+      if (resultsResp.statusCode == 200) {
+        final responseData = jsonDecode(resultsResp.body);
+        final basalRate = responseData['results'] != null &&
+                responseData['results'].isNotEmpty
+            ? (responseData['results'][0]['BasalMetabolicRate']?['N'] is String
+                ? double.tryParse(responseData['results'][0]
+                        ['BasalMetabolicRate']?['N']) ??
+                    0.0
+                : 0.0)
+            : 0.0;
+        final gaitCycles = responseData['results'] != null
+            ? responseData['results'].where((result) {
+                final n = result['EnergyExpenditure']?['N'];
+                final nStr = (n is String && n != null) ? n : '0';
+                return (double.tryParse(nStr) ?? 0) > basalRate;
+              }).length
+            : 0;
+        return {
+          'results': responseData['results'],
+          'basal_metabolic_rate': basalRate,
+          'gait_cycles': gaitCycles,
+          'total_windows_processed': responseData['results']?.length ?? 0,
+        };
+      } else {
+        return {'error': 'Failed to fetch results: ${resultsResp.body}'};
+      }
+    } catch (e) {
+      print("⚠️ Error in _processEnergyExpenditure: $e");
+      return {'error': 'Failed to process energy expenditure: $e'};
     }
   }
 
