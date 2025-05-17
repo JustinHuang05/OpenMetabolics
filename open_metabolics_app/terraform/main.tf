@@ -143,7 +143,7 @@ resource "aws_dynamodb_table" "user_survey_responses" {
 # SQS Queue for processing jobs
 resource "aws_sqs_queue" "processing_queue" {
   name                      = "energy-expenditure-processing-queue"
-  visibility_timeout_seconds = 3600  # 1 hour
+  visibility_timeout_seconds = 26400  # 7 hours 20 minutes
   message_retention_seconds = 86400  # 1 day
   delay_seconds             = 0
   receive_wait_time_seconds = 20     # Long polling

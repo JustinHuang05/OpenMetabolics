@@ -1300,7 +1300,7 @@ class _SensorScreenState extends State<SensorScreen> {
       String? errorMsg;
       double progress = 0.0;
       int pollCount = 0;
-      const int maxPolls = 120; // 6 minutes max
+      const int maxPolls = 8800; // 7 hours 20 minutes max (26400 seconds)
       const Duration pollInterval = Duration(seconds: 3);
       Map<String, dynamic>? statusData;
 

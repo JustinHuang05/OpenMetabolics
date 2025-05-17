@@ -18,8 +18,8 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
-def flutterVersionCode = '16'
-def flutterVersionName = '1.1.6'
+def flutterVersionCode = '17'
+def flutterVersionName = '1.1.7'
 
 android {
     namespace "com.openmetabolics.app"
