@@ -81,6 +81,15 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                "setHasActiveSessions" -> {
+                    if (isBound && sensorService != null) {
+                        val hasActive = call.argument<Boolean>("hasActive") ?: false
+                        sensorService!!.setHasActiveSessions(hasActive)
+                        result.success(null)
+                    } else {
+                        result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }

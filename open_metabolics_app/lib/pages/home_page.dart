@@ -19,6 +19,7 @@ import '../config/api_config.dart';
 import 'past_sessions_page.dart';
 import '../widgets/energy_expenditure_card.dart';
 import '../widgets/feedback_bottom_drawer.dart';
+import 'package:flutter/services.dart'; // Add this import for PlatformException
 
 // Session status class to track session state
 class SessionStatus {
@@ -597,8 +598,6 @@ class _SensorScreenState extends State<SensorScreen> {
     }
 
     // Check if another session is currently being recorded by this UI instance.
-    // This simple check prevents one UI from trying to manage two *live* recordings simultaneously.
-    // It does not prevent starting a new session while an old one is uploading in the background.
     if (_isTracking) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content:
@@ -648,6 +647,17 @@ class _SensorScreenState extends State<SensorScreen> {
     try {
       await SensorChannel.startSensors(
           newSessionId); // Pass newSessionId to native
+
+      // Add a small delay to allow service binding
+      await Future.delayed(Duration(milliseconds: 500));
+
+      // Now try to set active sessions
+      try {
+        await SensorChannel.setHasActiveSessions(true);
+      } catch (e) {
+        print('Warning: Could not set active sessions state: $e');
+        // Continue anyway as the service is still running
+      }
     } catch (e) {
       print('Error starting native sensors for session $newSessionId: $e');
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -821,31 +831,43 @@ class _SensorScreenState extends State<SensorScreen> {
       return;
     }
 
-    SensorChannel.stopSensors(); // Stop native sensors first
-    _accelerometerSubscription?.cancel();
-
-    final filePath = await recorder.getCurrentSessionFilePath();
-    await recorder
-        .stopRecording(); // Stop this specific recorder (flushes and closes its file)
-
+    // Create the session status first
     final session = SessionStatus(
       sessionId: sessionIdToStop,
       startTime: _startTime!, // Use the start time for this specific session
       endTime: DateTime.now(),
       isWaitingForNetwork: !_hasNetworkConnection,
-      filePath: filePath,
+      filePath: null, // Will be set after getting file path
       csvLines: null, // Will be read in _uploadCSVToServer if needed
       lastUploadedBatchIndex: 0,
     );
 
-    setState(() {
-      _isTracking = false; // No *live* recording now
-      _sessions.insert(0, session); // Add to UI list
-      _currentSessionId = null; // Clear current live recording ID
-      _startTime = null;
-      _currentSessionLinesWritten =
-          0; // Reset on new session start is sufficient
-    });
+    // Get file path before stopping recording
+    final filePath = await recorder.getCurrentSessionFilePath();
+    session.filePath = filePath;
+
+    // Update wake lock state based on active sessions BEFORE stopping service
+    try {
+      // Add this session to the list first so it's counted in active sessions
+      setState(() {
+        _sessions.insert(0, session);
+        _isTracking = false;
+        _currentSessionId = null;
+        _startTime = null;
+        _currentSessionLinesWritten = 0;
+      });
+
+      // Now set active sessions state while service is still bound
+      await SensorChannel.setHasActiveSessions(_sessions.isNotEmpty);
+    } catch (e) {
+      print('Warning: Could not update active sessions state: $e');
+      // Continue anyway as we're stopping the service
+    }
+
+    // Stop the recording and sensors
+    await recorder.stopRecording();
+    SensorChannel.stopSensors();
+    _accelerometerSubscription?.cancel();
 
     // Initiate upload if network is available
     if (_hasNetworkConnection) {
@@ -1223,6 +1245,22 @@ class _SensorScreenState extends State<SensorScreen> {
             ),
           );
         });
+      }
+
+      // At the end of successful upload and processing
+      if (session.isComplete) {
+        try {
+          await SensorChannel.setHasActiveSessions(
+              _sessions.any((s) => !s.isComplete));
+        } catch (e) {
+          if (e is PlatformException && e.code == 'SERVICE_NOT_BOUND') {
+            print(
+                'Service not bound when updating active sessions state after completion. Ignoring.');
+          } else {
+            print('Unexpected error updating active sessions state: $e');
+          }
+          // Do NOT set this as a session error!
+        }
       }
     } catch (e) {
       print(

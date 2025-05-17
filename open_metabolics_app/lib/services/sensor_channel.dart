@@ -83,4 +83,12 @@ class SensorChannel {
     }
     return null;
   }
+
+  // Add method to set active sessions state
+  static Future<void> setHasActiveSessions(bool hasActive) async {
+    if (Platform.isAndroid) {
+      await _channel
+          .invokeMethod('setHasActiveSessions', {'hasActive': hasActive});
+    }
+  }
 }
