@@ -258,9 +258,13 @@ def process_window(window: List[Dict[str, Any]], window_index: int, session_id: 
     print(f"Final ee_values before processing: {ee_values}")
 
     results = []
-    window_start_time = datetime.fromisoformat(window[0]['Timestamp']['S'].replace('Z', '+00:00'))
-    window_end_time = datetime.fromisoformat(window[-1]['Timestamp']['S'].replace('Z', '+00:00'))
-    time_per_gait_cycle = (window_end_time - window_start_time).total_seconds() / len(ee_values)
+    if len(ee_values) > 0:
+        window_start_time = datetime.fromisoformat(window[0]['Timestamp']['S'].replace('Z', '+00:00'))
+        window_end_time = datetime.fromisoformat(window[-1]['Timestamp']['S'].replace('Z', '+00:00'))
+        time_per_gait_cycle = (window_end_time - window_start_time).total_seconds() / len(ee_values)
+    else:
+        print(f"WARNING: No EE values for window {window_index + 1} in session {session_id}. Skipping window.")
+        return results
 
     # Store each result
     for j, ee_value in enumerate(ee_values):
@@ -406,9 +410,10 @@ def process_message(message):
                             denominator = total_items_processed_into_windows + len(overlap_buffer)
                             if denominator > 0:
                                 progress = (total_items_processed_into_windows / denominator) * 100
+                                update_processing_status(session_id, 'processing', progress)
                             else:
-                                progress = 0.0
-                            update_processing_status(session_id, 'processing', progress)
+                                # Only update status if there is meaningful progress
+                                update_processing_status(session_id, 'processing', 0.0)
                         
                         overlap_buffer = data_to_process_now[end_index_for_full_windows:]
                         print(f"[DEBUG] overlap_buffer length after processing: {len(overlap_buffer)}")

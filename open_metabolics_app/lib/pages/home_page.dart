@@ -454,17 +454,11 @@ class _SensorScreenState extends State<SensorScreen> {
             (s) => s.sessionId == session.sessionId,
             orElse: () => session /* Should always find itself */);
 
-        // If a session is waiting, we assume we're about to try something with it.
-        // The specific methods (EE processing or CSV upload) will set it back to
-        // waiting if they encounter network issues during their operation.
         if (mounted) {
-          // Ensure widget is still mounted before calling setState
           setState(() {
-            // Tentatively mark as not waiting; subsequent operations will reset if needed
             sessionStatusToResume.isWaitingForNetwork = false;
           });
         } else {
-          // If not mounted, we can't update state, so skip this session for now.
           continue;
         }
 
@@ -472,7 +466,6 @@ class _SensorScreenState extends State<SensorScreen> {
             !sessionStatusToResume.isComplete) {
           print(
               "Resuming energy expenditure for ${sessionStatusToResume.sessionId}");
-          // Ensuring email is available or handled gracefully
           String? userEmail;
           try {
             userEmail = await Provider.of<AuthService>(context, listen: false)
@@ -489,11 +482,18 @@ class _SensorScreenState extends State<SensorScreen> {
                 sessionStatusToResume.isProcessingEnergyExpenditure = false;
               });
             }
-            continue; // Skip to next session if email fetch fails
+            continue;
           }
 
-          _processEnergyExpenditure(sessionStatusToResume.sessionId, userEmail)
-              .then((results) {
+          // Resume polling for results if previously waiting for network
+          final results = await _processEnergyExpenditure(
+              sessionStatusToResume.sessionId, userEmail);
+          if (results['waitingForNetwork'] == true) {
+            // Still waiting for network, do not mark as complete
+            continue;
+          }
+          if (results['error'] != null) {
+            // Only mark as complete if it's a real error (not just waiting for network)
             if (mounted) {
               setState(() {
                 sessionStatusToResume.isComplete = true;
@@ -503,36 +503,23 @@ class _SensorScreenState extends State<SensorScreen> {
                 _activeRecorders.remove(sessionStatusToResume.sessionId);
               });
             }
-          }).catchError((error) {
-            print(
-                "Error resuming energy expenditure for ${sessionStatusToResume.sessionId}: $error");
-            if (mounted) {
-              setState(() {
-                if (error.toString().contains('No network connection') ||
-                    error.toString().contains('Failed host lookup') ||
-                    error.toString().contains('SocketException')) {
-                  sessionStatusToResume.isWaitingForNetwork = true;
-                } else {
-                  sessionStatusToResume.isComplete = true;
-                  sessionStatusToResume.results = {
-                    'error': 'Failed to resume energy expenditure: $error'
-                  };
-                  _activeRecorders.remove(sessionStatusToResume.sessionId);
-                }
-                sessionStatusToResume.isProcessing = false;
-                sessionStatusToResume.isProcessingEnergyExpenditure = false;
-              });
-            }
-          });
+            continue;
+          }
+          // Only here, for real results, mark as complete
+          if (mounted) {
+            setState(() {
+              sessionStatusToResume.isComplete = true;
+              sessionStatusToResume.isProcessing = false;
+              sessionStatusToResume.isProcessingEnergyExpenditure = false;
+              sessionStatusToResume.results = results;
+              _activeRecorders.remove(sessionStatusToResume.sessionId);
+            });
+          }
         } else if (!sessionStatusToResume.isComplete) {
-          // This covers sessions that need to start/resume CSV upload,
-          // including those created entirely offline.
           print(
               "Attempting/Resuming CSV upload for ${sessionStatusToResume.sessionId}.");
           _uploadCSVToServer(sessionStatusToResume);
         } else {
-          // Session is already complete, and was marked as waiting.
-          // isWaitingForNetwork flag was cleared by the setState above.
           print(
               "Session ${sessionStatusToResume.sessionId} was waiting but is already complete. No action taken.");
         }
@@ -872,9 +859,9 @@ class _SensorScreenState extends State<SensorScreen> {
     if (!_hasNetworkConnection && !session.isWaitingForNetwork) {
       // This check might be redundant if _resumeWaitingUploads already cleared isWaitingForNetwork
       // but good for direct calls or other edge cases.
-      if (mounted) {
+      if (session != null && mounted) {
         setState(() {
-          session.isWaitingForNetwork = true;
+          session!.isWaitingForNetwork = true;
         });
       }
       return;
@@ -884,7 +871,8 @@ class _SensorScreenState extends State<SensorScreen> {
     // If called directly, ensure isWaitingForNetwork is handled.
     if (session.isWaitingForNetwork) {
       // If it's still marked as waiting, means we should try.
-      if (mounted) setState(() => session.isWaitingForNetwork = false);
+      if (session != null && mounted)
+        setState(() => session.isWaitingForNetwork = false);
     }
 
     String? userEmail;
@@ -894,11 +882,11 @@ class _SensorScreenState extends State<SensorScreen> {
     } catch (e) {
       print(
           "❌ Network error getting user email for session ${session.sessionId}: $e");
-      if (mounted) {
+      if (session != null && mounted) {
         setState(() {
-          session.isWaitingForNetwork = true; // Set to wait for network
-          session.isProcessing = false;
-          session.isProcessingEnergyExpenditure = false;
+          session!.isWaitingForNetwork = true; // Set to wait for network
+          session!.isProcessing = false;
+          session!.isProcessingEnergyExpenditure = false;
         });
       }
       return; // Exit if email cannot be fetched due to network
@@ -907,15 +895,15 @@ class _SensorScreenState extends State<SensorScreen> {
     if (userEmail == null) {
       print(
           "❌ No user email retrieved for session ${session.sessionId}. Cannot upload.");
-      if (mounted) {
+      if (session != null && mounted) {
         setState(() {
-          session.isComplete = true;
-          session.results = {
+          session!.isComplete = true;
+          session!.results = {
             'error': 'User not logged in or email not available, cannot upload.'
           };
           _activeRecorders.remove(session.sessionId);
-          session.isProcessing = false;
-          session.isProcessingEnergyExpenditure = false;
+          session!.isProcessing = false;
+          session!.isProcessingEnergyExpenditure = false;
         });
       }
       return;
@@ -927,8 +915,8 @@ class _SensorScreenState extends State<SensorScreen> {
         print(
             "❌ File path is null for session ${session.sessionId}. Cannot upload.");
         setState(() {
-          session.isComplete = true;
-          session.results = {'error': 'File path missing, cannot upload.'};
+          session!.isComplete = true;
+          session!.results = {'error': 'File path missing, cannot upload.'};
           _activeRecorders.remove(session.sessionId); // Clean up recorder
         });
         return;
@@ -939,8 +927,8 @@ class _SensorScreenState extends State<SensorScreen> {
         print(
             'CSV file does not exist at ${session.filePath} for session ${session.sessionId}');
         setState(() {
-          session.isComplete = true;
-          session.results = {'error': 'No data file found for upload.'};
+          session!.isComplete = true;
+          session!.results = {'error': 'No data file found for upload.'};
           _activeRecorders.remove(session.sessionId); // Clean up recorder
         });
         return;
@@ -955,16 +943,16 @@ class _SensorScreenState extends State<SensorScreen> {
       if (session.csvLines!.length < 250) {
         print(
             "❌ CSV file for session ${session.sessionId} is too short (less than 250 rows). Actual: ${session.csvLines!.length} rows.");
-        if (mounted) {
+        if (session != null && mounted) {
           // Ensure widget is still mounted
           setState(() {
-            session.isComplete = true;
-            session.results = {'error': 'Session too short for analysis'};
+            session!.isComplete = true;
+            session!.results = {'error': 'Session too short for analysis'};
             _activeRecorders.remove(session.sessionId);
             // Ensure other processing flags are false
-            session.isProcessing = false;
-            session.isProcessingEnergyExpenditure = false;
-            session.uploadProgress = 0.0; // Reset progress
+            session!.isProcessing = false;
+            session!.isProcessingEnergyExpenditure = false;
+            session!.uploadProgress = 0.0; // Reset progress
           });
         }
         return; // Exit before attempting any network upload
@@ -1023,12 +1011,12 @@ class _SensorScreenState extends State<SensorScreen> {
         } else {
           print(
               "❌ Failed to upload batch ${batchStartIndex ~/ batchSize + 1} for ${session.sessionId}: ${response.body}");
-          if (mounted)
+          if (session != null && mounted)
             setState(() {
-              session.isWaitingForNetwork =
+              session!.isWaitingForNetwork =
                   true; // Assume network or temp server issue
-              session.lastUploadedBatchIndex = batchStartIndex ~/ batchSize;
-              session.isProcessing = false;
+              session!.lastUploadedBatchIndex = batchStartIndex ~/ batchSize;
+              session!.isProcessing = false;
             });
           return;
         }
@@ -1059,11 +1047,11 @@ class _SensorScreenState extends State<SensorScreen> {
       }
 
       if (!_hasNetworkConnection) {
-        if (mounted)
+        if (session != null && mounted)
           setState(() {
-            session.isWaitingForNetwork = true;
-            session.isProcessing = false; // EE processing paused
-            session.isProcessingEnergyExpenditure =
+            session!.isWaitingForNetwork = true;
+            session!.isProcessing = false; // EE processing paused
+            session!.isProcessingEnergyExpenditure =
                 false; // Ensure this is false if waiting
           });
         print(
@@ -1073,15 +1061,33 @@ class _SensorScreenState extends State<SensorScreen> {
 
       final results =
           await _processEnergyExpenditure(session.sessionId, userEmail);
-      if (mounted)
+      if (results['waitingForNetwork'] == true) {
+        // Still waiting for network, do not mark as complete
+        return;
+      }
+      if (results['error'] != null) {
+        // Only mark as complete if it's a real error (not just waiting for network)
+        if (mounted) {
+          setState(() {
+            session.isComplete = true;
+            session.isProcessing = false;
+            session.isProcessingEnergyExpenditure = false;
+            session.results = results;
+            _activeRecorders.remove(session.sessionId);
+          });
+        }
+        return;
+      }
+      // Only here, for real results, mark as complete
+      if (mounted) {
         setState(() {
           session.isComplete = true;
           session.isProcessing = false;
           session.isProcessingEnergyExpenditure = false;
           session.results = results;
-          _activeRecorders
-              .remove(session.sessionId); // SUCCESS: Clean up recorder
+          _activeRecorders.remove(session.sessionId);
         });
+      }
 
       // --- Show dialog and survey logic remains same ---
       if (mounted) {
@@ -1263,6 +1269,14 @@ class _SensorScreenState extends State<SensorScreen> {
         ? fargateBaseUrl + 'results/'
         : fargateBaseUrl + '/results/';
 
+    // Find the session object if it exists
+    SessionStatus? session;
+    try {
+      session = _sessions.firstWhere((s) => s.sessionId == sessionId);
+    } catch (_) {
+      session = null;
+    }
+
     try {
       // 1. Queue the job
       final response = await http.post(
@@ -1291,29 +1305,51 @@ class _SensorScreenState extends State<SensorScreen> {
       Map<String, dynamic>? statusData;
 
       while (!isComplete && !isFailed && pollCount < maxPolls) {
-        await Future.delayed(pollInterval);
-        pollCount++;
-        final statusResp = await http.get(Uri.parse(statusUrl + sessionId));
-        if (statusResp.statusCode == 200) {
-          statusData = jsonDecode(statusResp.body);
-          if (statusData != null) {
-            final status = statusData['status'];
-            progress = (statusData['progress'] ?? 0.0).toDouble();
-            errorMsg = statusData['error'];
+        try {
+          await Future.delayed(pollInterval);
+          pollCount++;
+          final statusResp = await http.get(Uri.parse(statusUrl + sessionId));
+          if (statusResp.statusCode == 200) {
+            statusData = jsonDecode(statusResp.body);
+            if (statusData != null) {
+              final status = statusData['status'];
+              progress = (statusData['progress'] ?? 0.0).toDouble();
+              errorMsg = statusData['error'];
 
-            if (status == 'completed') {
-              isComplete = true;
-              break;
-            } else if (status == 'failed') {
-              isFailed = true;
-              break;
+              if (status == 'completed') {
+                isComplete = true;
+                break;
+              } else if (status == 'failed') {
+                isFailed = true;
+                break;
+              }
+            } else {
+              print(
+                  'Status response body was null or not JSON: \\${statusResp.body}');
             }
           } else {
-            print(
-                'Status response body was null or not JSON: \\${statusResp.body}');
+            print('Error polling status: \\${statusResp.body}');
           }
-        } else {
-          print('Error polling status: \\${statusResp.body}');
+        } catch (e) {
+          // Network error during polling
+          if (e is SocketException ||
+              e.toString().contains('Failed host lookup') ||
+              e.toString().contains('SocketException')) {
+            print('Network lost during polling for $sessionId. Pausing.');
+            if (session != null && mounted) {
+              setState(() {
+                session!.isWaitingForNetwork = true;
+                session!.isProcessing = false;
+                session!.isProcessingEnergyExpenditure = false;
+              });
+            }
+            // Exit polling loop, but do NOT mark as failed
+            return {'waitingForNetwork': true};
+          } else {
+            // Other errors: handle as before
+            print("⚠️ Error in _processEnergyExpenditure polling: $e");
+            return {'error': 'Failed to process energy expenditure: $e'};
+          }
         }
       }
 
@@ -1353,6 +1389,20 @@ class _SensorScreenState extends State<SensorScreen> {
         return {'error': 'Failed to fetch results: ${resultsResp.body}'};
       }
     } catch (e) {
+      // Network error during initial queueing
+      if (e is SocketException ||
+          e.toString().contains('Failed host lookup') ||
+          e.toString().contains('SocketException')) {
+        print('Network lost during initial queueing for $sessionId. Pausing.');
+        if (session != null && mounted) {
+          setState(() {
+            session!.isWaitingForNetwork = true;
+            session!.isProcessing = false;
+            session!.isProcessingEnergyExpenditure = false;
+          });
+        }
+        return {'waitingForNetwork': true};
+      }
       print("⚠️ Error in _processEnergyExpenditure: $e");
       return {'error': 'Failed to process energy expenditure: $e'};
     }
