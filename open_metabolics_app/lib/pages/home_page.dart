@@ -19,6 +19,7 @@ import '../config/api_config.dart';
 import 'past_sessions_page.dart';
 import '../widgets/energy_expenditure_card.dart';
 import '../widgets/feedback_bottom_drawer.dart';
+import 'package:flutter/services.dart'; // Add this import for PlatformException
 
 // Session status class to track session state
 class SessionStatus {
@@ -385,47 +386,100 @@ class _SensorScreenState extends State<SensorScreen> {
     super.initState();
     // Initialize connectivity listener
     _initConnectivity();
+    // Check network state immediately
+    _verifyNetworkState();
     // Fetch profile when the page loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<UserProfileProvider>().fetchUserProfile();
     });
   }
 
-  Future<void> _initConnectivity() async {
+  Future<void> _verifyNetworkState() async {
+    print("Verifying network state on app start...");
+    // Assume network is available unless proven otherwise
+    bool hasConnection = true;
+
     try {
       final result = await InternetAddress.lookup('google.com');
-      _hasNetworkConnection =
-          result.isNotEmpty && result[0].rawAddress.isNotEmpty;
-    } on SocketException catch (_) {
-      _hasNetworkConnection = false;
+      hasConnection = result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } on SocketException catch (e) {
+      // Only mark as disconnected if we get a clear network error
+      // Ignore "Lost connection to device" errors
+      if (!e.toString().contains("Lost connection to device")) {
+        hasConnection = false;
+      }
     }
+
+    print(
+        "Final network state: ${hasConnection ? 'Connected' : 'Disconnected'}");
+    print("Current sessions: ${_sessions.length}");
+    for (var session in _sessions) {
+      print(
+          "Session ${session.sessionId}: waiting=${session.isWaitingForNetwork}, complete=${session.isComplete}");
+    }
+
+    if (mounted) {
+      setState(() {
+        _hasNetworkConnection = hasConnection;
+        // If we have connection, update any sessions that were waiting
+        if (hasConnection) {
+          for (var session in _sessions) {
+            if (session.isWaitingForNetwork) {
+              print(
+                  "Resuming session ${session.sessionId} that was waiting for network");
+              session.isWaitingForNetwork = false;
+              session.isProcessing =
+                  true; // Set processing to true to show upload progress
+              if (!session.isComplete) {
+                // Use Future.microtask to ensure state is updated before starting upload
+                Future.microtask(() => _uploadCSVToServer(session));
+              }
+            }
+          }
+        }
+      });
+    }
+  }
+
+  Future<void> _initConnectivity() async {
+    // Initial check - assume network is available unless proven otherwise
+    bool hasConnection = true;
+    try {
+      final result = await InternetAddress.lookup('google.com');
+      hasConnection = result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } on SocketException catch (e) {
+      // Ignore "Lost connection to device" errors
+      if (!e.toString().contains("Lost connection to device")) {
+        hasConnection = false;
+      }
+    }
+
+    _hasNetworkConnection = hasConnection;
 
     // Listen for connectivity changes
     _connectivitySubscription =
         Stream.periodic(Duration(seconds: 5)).listen((_) async {
+      bool hasConnection = true;
       try {
         final result = await InternetAddress.lookup('google.com');
-        final hasConnection =
-            result.isNotEmpty && result[0].rawAddress.isNotEmpty;
-
-        if (hasConnection != _hasNetworkConnection) {
-          setState(() {
-            _hasNetworkConnection = hasConnection;
-          });
-
-          if (hasConnection) {
-            // Resume any waiting uploads
-            _resumeWaitingUploads();
-          } else {
-            // Pause any active uploads
-            _pauseActiveUploads();
-          }
+        hasConnection = result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+      } on SocketException catch (e) {
+        // Ignore "Lost connection to device" errors
+        if (!e.toString().contains("Lost connection to device")) {
+          hasConnection = false;
         }
-      } on SocketException catch (_) {
-        if (_hasNetworkConnection) {
-          setState(() {
-            _hasNetworkConnection = false;
-          });
+      }
+
+      if (hasConnection != _hasNetworkConnection) {
+        setState(() {
+          _hasNetworkConnection = hasConnection;
+        });
+
+        if (hasConnection) {
+          // Resume any waiting uploads
+          _resumeWaitingUploads();
+        } else {
+          // Only pause if we're certain there's no connection
           _pauseActiveUploads();
         }
       }
@@ -447,53 +501,88 @@ class _SensorScreenState extends State<SensorScreen> {
   }
 
   void _resumeWaitingUploads() async {
-    for (var session in _sessions) {
-      if (session.isWaitingForNetwork) {
-        // Find the authoritative SessionStatus object from the _sessions list
-        final sessionStatusToResume = _sessions.firstWhere(
-            (s) => s.sessionId == session.sessionId,
-            orElse: () => session /* Should always find itself */);
-
-        if (mounted) {
-          setState(() {
-            sessionStatusToResume.isWaitingForNetwork = false;
-          });
-        } else {
-          continue;
+    // First verify network connection
+    bool hasConnection = false;
+    for (int i = 0; i < 3; i++) {
+      try {
+        final result = await InternetAddress.lookup('google.com');
+        if (result.isNotEmpty && result[0].rawAddress.isNotEmpty) {
+          hasConnection = true;
+          break;
         }
+      } on SocketException catch (_) {
+        await Future.delayed(Duration(seconds: 1));
+      }
+    }
 
-        if (sessionStatusToResume.isProcessingEnergyExpenditure &&
-            !sessionStatusToResume.isComplete) {
-          print(
-              "Resuming energy expenditure for ${sessionStatusToResume.sessionId}");
-          String? userEmail;
-          try {
-            userEmail = await Provider.of<AuthService>(context, listen: false)
-                .getCurrentUserEmail();
-            if (userEmail == null) throw Exception("User email is null");
-          } catch (e) {
+    // Update network state
+    if (mounted) {
+      setState(() {
+        _hasNetworkConnection = hasConnection;
+      });
+    }
+
+    // If we have connection, resume uploads
+    if (hasConnection) {
+      for (var session in _sessions) {
+        if (session.isWaitingForNetwork) {
+          // Find the authoritative SessionStatus object from the _sessions list
+          final sessionStatusToResume = _sessions.firstWhere(
+              (s) => s.sessionId == session.sessionId,
+              orElse: () => session /* Should always find itself */);
+
+          if (mounted) {
+            setState(() {
+              sessionStatusToResume.isWaitingForNetwork = false;
+            });
+          } else {
+            continue;
+          }
+
+          if (sessionStatusToResume.isProcessingEnergyExpenditure &&
+              !sessionStatusToResume.isComplete) {
             print(
-                "Error getting user email for EE resumption of ${sessionStatusToResume.sessionId}: $e");
-            if (mounted) {
-              setState(() {
-                sessionStatusToResume.isWaitingForNetwork =
-                    true; // Needs network for email
-                sessionStatusToResume.isProcessing = false;
-                sessionStatusToResume.isProcessingEnergyExpenditure = false;
-              });
+                "Resuming energy expenditure for ${sessionStatusToResume.sessionId}");
+            String? userEmail;
+            try {
+              userEmail = await Provider.of<AuthService>(context, listen: false)
+                  .getCurrentUserEmail();
+              if (userEmail == null) throw Exception("User email is null");
+            } catch (e) {
+              print(
+                  "Error getting user email for EE resumption of ${sessionStatusToResume.sessionId}: $e");
+              if (mounted) {
+                setState(() {
+                  sessionStatusToResume.isWaitingForNetwork =
+                      true; // Needs network for email
+                  sessionStatusToResume.isProcessing = false;
+                  sessionStatusToResume.isProcessingEnergyExpenditure = false;
+                });
+              }
+              continue;
             }
-            continue;
-          }
 
-          // Resume polling for results if previously waiting for network
-          final results = await _processEnergyExpenditure(
-              sessionStatusToResume.sessionId, userEmail);
-          if (results['waitingForNetwork'] == true) {
-            // Still waiting for network, do not mark as complete
-            continue;
-          }
-          if (results['error'] != null) {
-            // Only mark as complete if it's a real error (not just waiting for network)
+            // Resume polling for results if previously waiting for network
+            final results = await _processEnergyExpenditure(
+                sessionStatusToResume.sessionId, userEmail);
+            if (results['waitingForNetwork'] == true) {
+              // Still waiting for network, do not mark as complete
+              continue;
+            }
+            if (results['error'] != null) {
+              // Only mark as complete if it's a real error (not just waiting for network)
+              if (mounted) {
+                setState(() {
+                  sessionStatusToResume.isComplete = true;
+                  sessionStatusToResume.isProcessing = false;
+                  sessionStatusToResume.isProcessingEnergyExpenditure = false;
+                  sessionStatusToResume.results = results;
+                  _activeRecorders.remove(sessionStatusToResume.sessionId);
+                });
+              }
+              continue;
+            }
+            // Only here, for real results, mark as complete
             if (mounted) {
               setState(() {
                 sessionStatusToResume.isComplete = true;
@@ -503,25 +592,14 @@ class _SensorScreenState extends State<SensorScreen> {
                 _activeRecorders.remove(sessionStatusToResume.sessionId);
               });
             }
-            continue;
+          } else if (!sessionStatusToResume.isComplete) {
+            print(
+                "Attempting/Resuming CSV upload for ${sessionStatusToResume.sessionId}.");
+            _uploadCSVToServer(sessionStatusToResume);
+          } else {
+            print(
+                "Session ${sessionStatusToResume.sessionId} was waiting but is already complete. No action taken.");
           }
-          // Only here, for real results, mark as complete
-          if (mounted) {
-            setState(() {
-              sessionStatusToResume.isComplete = true;
-              sessionStatusToResume.isProcessing = false;
-              sessionStatusToResume.isProcessingEnergyExpenditure = false;
-              sessionStatusToResume.results = results;
-              _activeRecorders.remove(sessionStatusToResume.sessionId);
-            });
-          }
-        } else if (!sessionStatusToResume.isComplete) {
-          print(
-              "Attempting/Resuming CSV upload for ${sessionStatusToResume.sessionId}.");
-          _uploadCSVToServer(sessionStatusToResume);
-        } else {
-          print(
-              "Session ${sessionStatusToResume.sessionId} was waiting but is already complete. No action taken.");
         }
       }
     }
@@ -597,8 +675,6 @@ class _SensorScreenState extends State<SensorScreen> {
     }
 
     // Check if another session is currently being recorded by this UI instance.
-    // This simple check prevents one UI from trying to manage two *live* recordings simultaneously.
-    // It does not prevent starting a new session while an old one is uploading in the background.
     if (_isTracking) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content:
@@ -648,6 +724,17 @@ class _SensorScreenState extends State<SensorScreen> {
     try {
       await SensorChannel.startSensors(
           newSessionId); // Pass newSessionId to native
+
+      // Add a small delay to allow service binding
+      await Future.delayed(Duration(milliseconds: 500));
+
+      // Now try to set active sessions
+      try {
+        await SensorChannel.setHasActiveSessions(true);
+      } catch (e) {
+        print('Warning: Could not set active sessions state: $e');
+        // Continue anyway as the service is still running
+      }
     } catch (e) {
       print('Error starting native sensors for session $newSessionId: $e');
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -821,31 +908,43 @@ class _SensorScreenState extends State<SensorScreen> {
       return;
     }
 
-    SensorChannel.stopSensors(); // Stop native sensors first
-    _accelerometerSubscription?.cancel();
-
-    final filePath = await recorder.getCurrentSessionFilePath();
-    await recorder
-        .stopRecording(); // Stop this specific recorder (flushes and closes its file)
-
+    // Create the session status first
     final session = SessionStatus(
       sessionId: sessionIdToStop,
       startTime: _startTime!, // Use the start time for this specific session
       endTime: DateTime.now(),
       isWaitingForNetwork: !_hasNetworkConnection,
-      filePath: filePath,
+      filePath: null, // Will be set after getting file path
       csvLines: null, // Will be read in _uploadCSVToServer if needed
       lastUploadedBatchIndex: 0,
     );
 
-    setState(() {
-      _isTracking = false; // No *live* recording now
-      _sessions.insert(0, session); // Add to UI list
-      _currentSessionId = null; // Clear current live recording ID
-      _startTime = null;
-      _currentSessionLinesWritten =
-          0; // Reset on new session start is sufficient
-    });
+    // Get file path before stopping recording
+    final filePath = await recorder.getCurrentSessionFilePath();
+    session.filePath = filePath;
+
+    // Update wake lock state based on active sessions BEFORE stopping service
+    try {
+      // Add this session to the list first so it's counted in active sessions
+      setState(() {
+        _sessions.insert(0, session);
+        _isTracking = false;
+        _currentSessionId = null;
+        _startTime = null;
+        _currentSessionLinesWritten = 0;
+      });
+
+      // Now set active sessions state while service is still bound
+      await SensorChannel.setHasActiveSessions(_sessions.isNotEmpty);
+    } catch (e) {
+      print('Warning: Could not update active sessions state: $e');
+      // Continue anyway as we're stopping the service
+    }
+
+    // Stop the recording and sensors
+    await recorder.stopRecording();
+    SensorChannel.stopSensors();
+    _accelerometerSubscription?.cancel();
 
     // Initiate upload if network is available
     if (_hasNetworkConnection) {
@@ -856,9 +955,24 @@ class _SensorScreenState extends State<SensorScreen> {
   }
 
   Future<void> _uploadCSVToServer(SessionStatus session) async {
-    if (!_hasNetworkConnection && !session.isWaitingForNetwork) {
-      // This check might be redundant if _resumeWaitingUploads already cleared isWaitingForNetwork
-      // but good for direct calls or other edge cases.
+    print("Starting upload for session ${session.sessionId}");
+    print(
+        "Network state: ${_hasNetworkConnection ? 'Connected' : 'Disconnected'}");
+    print(
+        "Session state: waiting=${session.isWaitingForNetwork}, complete=${session.isComplete}");
+
+    // Start the upload service
+    try {
+      await SensorChannel.startUpload();
+      await SensorChannel.setHasActiveUploads(true);
+    } catch (e) {
+      print("Warning: Could not start upload service: $e");
+      // Continue anyway as the upload might still work
+    }
+
+    // Only mark as waiting if we're certain there's no network
+    if (!_hasNetworkConnection) {
+      print("No network connection, marking session as waiting");
       if (session != null && mounted) {
         setState(() {
           session!.isWaitingForNetwork = true;
@@ -866,13 +980,16 @@ class _SensorScreenState extends State<SensorScreen> {
       }
       return;
     }
-    // If we are here, we intend to try, so clear waiting status unless an error sets it back.
-    // However, the primary set to false is now in _resumeWaitingUploads.
-    // If called directly, ensure isWaitingForNetwork is handled.
+
+    // Clear waiting status and ensure we're processing
     if (session.isWaitingForNetwork) {
-      // If it's still marked as waiting, means we should try.
-      if (session != null && mounted)
-        setState(() => session.isWaitingForNetwork = false);
+      print("Clearing waiting status for session ${session.sessionId}");
+      if (session != null && mounted) {
+        setState(() {
+          session.isWaitingForNetwork = false;
+          session.isProcessing = true;
+        });
+      }
     }
 
     String? userEmail;
@@ -1223,6 +1340,16 @@ class _SensorScreenState extends State<SensorScreen> {
             ),
           );
         });
+      }
+
+      // At the end of successful upload and processing
+      if (session.isComplete) {
+        try {
+          await SensorChannel.setHasActiveUploads(false);
+          await SensorChannel.stopUpload();
+        } catch (e) {
+          print('Warning: Could not stop upload service: $e');
+        }
       }
     } catch (e) {
       print(

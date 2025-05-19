@@ -83,4 +83,32 @@ class SensorChannel {
     }
     return null;
   }
+
+  // Add method to set active sessions state
+  static Future<void> setHasActiveSessions(bool hasActive) async {
+    if (Platform.isAndroid) {
+      await _channel
+          .invokeMethod('setHasActiveSessions', {'hasActive': hasActive});
+    }
+  }
+
+  // Add methods for upload service
+  static Future<void> startUpload() async {
+    if (Platform.isAndroid) {
+      await _channel.invokeMethod('startUpload');
+    }
+  }
+
+  static Future<void> stopUpload() async {
+    if (Platform.isAndroid) {
+      await _channel.invokeMethod('stopUpload');
+    }
+  }
+
+  static Future<void> setHasActiveUploads(bool hasActive) async {
+    if (Platform.isAndroid) {
+      await _channel
+          .invokeMethod('setHasActiveUploads', {'hasActive': hasActive});
+    }
+  }
 }

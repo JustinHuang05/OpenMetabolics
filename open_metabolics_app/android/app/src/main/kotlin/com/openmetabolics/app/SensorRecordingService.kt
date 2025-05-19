@@ -65,6 +65,7 @@ class SensorRecordingService : Service(), SensorEventListener {
     private lateinit var sharedPreferences: SharedPreferences
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var hasActiveSessions = false
 
     inner class LocalBinder : Binder() {
         fun getService(): SensorRecordingService = this@SensorRecordingService
@@ -81,6 +82,7 @@ class SensorRecordingService : Service(), SensorEventListener {
         private const val KEY_SESSION_ID = "lastSessionId"
         private const val KEY_START_TIME = "lastStartTime"
         private const val KEY_FILE_PATH = "lastFilePath"
+        private const val KEY_HAS_ACTIVE_SESSIONS = "hasActiveSessions"
 
         fun startService(context: Context, sessionId: String) {
             val intent =
@@ -103,6 +105,7 @@ class SensorRecordingService : Service(), SensorEventListener {
                 remove(KEY_SESSION_ID)
                 remove(KEY_START_TIME)
                 remove(KEY_FILE_PATH)
+                remove(KEY_HAS_ACTIVE_SESSIONS)
                 apply()
             }
             println("SensorService: stopService called, cleared persisted state.")
@@ -144,6 +147,7 @@ class SensorRecordingService : Service(), SensorEventListener {
             isRestart = true
             println("SensorService: Restarted by system.")
             explicitSessionId = sharedPreferences.getString(KEY_SESSION_ID, null)
+            hasActiveSessions = sharedPreferences.getBoolean(KEY_HAS_ACTIVE_SESSIONS, false)
             if (explicitSessionId != null) {
                 println(
                         "SensorService: Restored sessionId $explicitSessionId from SharedPreferences."
@@ -177,7 +181,7 @@ class SensorRecordingService : Service(), SensorEventListener {
                     }
                     println("SensorService: Saved state for sessionId ${this.sessionId}.")
 
-                    // Acquire WakeLock now that initialization is successful
+                    // Acquire WakeLock when starting sensors
                     if (wakeLock?.isHeld == false) {
                         wakeLock?.acquire()
                         println("SensorService: WakeLock acquired for session ${this.sessionId}.")
@@ -281,11 +285,24 @@ class SensorRecordingService : Service(), SensorEventListener {
     }
 
     private fun startSensors() {
-        accelerometer?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
-        }
+        try {
+            accelerometer?.let {
+                val success =
+                        sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+                println("Accelerometer registration ${if (success) "successful" else "failed"}")
+            }
+                    ?: println("No accelerometer sensor available")
 
-        gyroscope?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+            gyroscope?.let {
+                val success =
+                        sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+                println("Gyroscope registration ${if (success) "successful" else "failed"}")
+            }
+                    ?: println("No gyroscope sensor available")
+        } catch (e: Exception) {
+            println("Error starting sensors: ${e.message}")
+            e.printStackTrace()
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder {
@@ -308,16 +325,14 @@ class SensorRecordingService : Service(), SensorEventListener {
             println("Error in onDestroy: ${e.message}")
         }
 
-        // Release WakeLock
-        if (wakeLock?.isHeld == true) {
+        // Only release WakeLock if there are no active sessions
+        if (wakeLock?.isHeld == true && !hasActiveSessions) {
             wakeLock?.release()
             println("SensorService: WakeLock released.")
+        } else if (wakeLock?.isHeld == true) {
+            println("SensorService: WakeLock maintained due to active sessions.")
         }
 
-        // The call to clearPersistedState() in stopService companion method is
-        // generally preferred for explicit stops.
-        // If you want to clear state when the service is destroyed for any reason:
-        // clearPersistedState()
         println("SensorService: onDestroy called.")
     }
 
@@ -452,5 +467,15 @@ class SensorRecordingService : Service(), SensorEventListener {
             apply()
         }
         println("SensorService: Cleared persisted state.")
+    }
+
+    // Add this method to update active sessions state
+    fun setHasActiveSessions(active: Boolean) {
+        hasActiveSessions = active
+        with(sharedPreferences.edit()) {
+            putBoolean(KEY_HAS_ACTIVE_SESSIONS, active)
+            apply()
+        }
+        println("SensorService: Active sessions state updated to: $active")
     }
 }

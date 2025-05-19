@@ -13,7 +13,9 @@ class MainActivity : FlutterActivity() {
     private val CHANNEL = "sensor_channel"
     private var channel: MethodChannel? = null
     private var sensorService: SensorRecordingService? = null
+    private var uploadService: UploadService? = null
     private var isBound = false
+    private var isUploadServiceBound = false
 
     private val connection =
             object : ServiceConnection {
@@ -25,6 +27,19 @@ class MainActivity : FlutterActivity() {
 
                 override fun onServiceDisconnected(arg0: ComponentName) {
                     isBound = false
+                }
+            }
+
+    private val uploadConnection =
+            object : ServiceConnection {
+                override fun onServiceConnected(className: ComponentName, service: IBinder) {
+                    val binder = service as UploadService.LocalBinder
+                    uploadService = binder.getService()
+                    isUploadServiceBound = true
+                }
+
+                override fun onServiceDisconnected(arg0: ComponentName) {
+                    isUploadServiceBound = false
                 }
             }
 
@@ -57,6 +72,30 @@ class MainActivity : FlutterActivity() {
                     SensorRecordingService.stopService(this)
                     result.success(null)
                 }
+                "startUpload" -> {
+                    UploadService.startService(this)
+                    Intent(this, UploadService::class.java).also { intent ->
+                        bindService(intent, uploadConnection, Context.BIND_AUTO_CREATE)
+                    }
+                    result.success(null)
+                }
+                "stopUpload" -> {
+                    if (isUploadServiceBound) {
+                        unbindService(uploadConnection)
+                        isUploadServiceBound = false
+                    }
+                    UploadService.stopService(this)
+                    result.success(null)
+                }
+                "setHasActiveUploads" -> {
+                    if (isUploadServiceBound && uploadService != null) {
+                        val hasActive = call.argument<Boolean>("hasActive") ?: false
+                        uploadService!!.setHasActiveUploads(hasActive)
+                        result.success(null)
+                    } else {
+                        result.error("SERVICE_NOT_BOUND", "Upload service not bound", null)
+                    }
+                }
                 "getAccelerometerData" -> {
                     if (isBound && sensorService != null) {
                         val data = sensorService!!.getSensorData()
@@ -81,6 +120,15 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                "setHasActiveSessions" -> {
+                    if (isBound && sensorService != null) {
+                        val hasActive = call.argument<Boolean>("hasActive") ?: false
+                        sensorService!!.setHasActiveSessions(hasActive)
+                        result.success(null)
+                    } else {
+                        result.error("SERVICE_NOT_BOUND", "Service not bound", null)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -93,6 +141,10 @@ class MainActivity : FlutterActivity() {
         if (isBound) {
             unbindService(connection)
             isBound = false
+        }
+        if (isUploadServiceBound) {
+            unbindService(uploadConnection)
+            isUploadServiceBound = false
         }
     }
 }
