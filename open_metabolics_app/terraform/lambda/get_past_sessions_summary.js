@@ -35,7 +35,7 @@ exports.handler = async (event) => {
                 ExpressionAttributeNames: {
                     '#ts': 'Timestamp'
                 },
-                ScanIndexForward: false, // Sort by timestamp in descending order
+                ScanIndexForward: false, // Sort by timestamp in descending order to get recent sessions first
                 Limit: 1000 // Get a reasonable batch size
             };
 
@@ -54,13 +54,19 @@ exports.handler = async (event) => {
             sessionResult.Items.forEach(item => {
                 const unmarshalledItem = unmarshall(item);
                 const sessionId = unmarshalledItem.SessionId;
+                const timestamp = unmarshalledItem.Timestamp;
+                
                 if (!uniqueSessions.has(sessionId)) {
                     uniqueSessions.set(sessionId, {
-                        timestamp: unmarshalledItem.Timestamp,
+                        timestamp: timestamp,
                         count: 1
                     });
                 } else {
                     const session = uniqueSessions.get(sessionId);
+                    // Update timestamp if this one is earlier
+                    if (new Date(timestamp) < new Date(session.timestamp)) {
+                        session.timestamp = timestamp;
+                    }
                     session.count++;
                     uniqueSessions.set(sessionId, session);
                 }
@@ -92,7 +98,7 @@ exports.handler = async (event) => {
             };
         }
 
-        // Convert to array and sort by timestamp
+        // Convert to array and sort by timestamp (most recent first)
         const sortedSessions = Array.from(uniqueSessions.entries())
             .map(([sessionId, data]) => ({
                 sessionId,
