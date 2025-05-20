@@ -29,6 +29,8 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   int _currentPage = 1;
   bool _hasNextPage = true;
   static const int _pageSize = 10;
+  String?
+      _lastSessionId; // Track the last session ID for survey response checks
 
   @override
   void initState() {
@@ -65,6 +67,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         _surveyResponses.clear();
         _currentPage = 1;
         _hasNextPage = true;
+        _lastSessionId = null;
       });
     } else {
       setState(() {
@@ -112,9 +115,15 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
             _currentPage = currentPageFromApi;
             _hasNextPage = hasNextPageFromApi;
 
+            // Only check survey responses for new sessions
             if (newSessions.isNotEmpty) {
-              _checkSurveyResponses(
-                  userEmail, newSessions.map((s) => s.sessionId).toList());
+              final newSessionIds = newSessions
+                  .where((s) => !_surveyResponses.containsKey(s.sessionId))
+                  .map((s) => s.sessionId)
+                  .toList();
+              if (newSessionIds.isNotEmpty) {
+                _checkSurveyResponses(userEmail, newSessionIds);
+              }
             }
           });
         }
@@ -192,6 +201,11 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   }
 
   Future<void> _refreshSingleSessionSurveyStatus(String sessionId) async {
+    if (_surveyResponses.containsKey(sessionId)) {
+      // If we already have the response, no need to fetch again
+      return;
+    }
+
     final authService = Provider.of<AuthService>(context, listen: false);
     final userEmail = await authService.getCurrentUserEmail();
     if (userEmail != null && sessionId.isNotEmpty) {
@@ -327,7 +341,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
             }
 
             final session = _sessions[index];
-            final date = DateTime.parse(session.timestamp);
             final hasFeedback = _surveyResponses[session.sessionId] ?? false;
 
             return Padding(

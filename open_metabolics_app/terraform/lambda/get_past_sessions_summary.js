@@ -17,41 +17,72 @@ exports.handler = async (event) => {
             };
         }
 
-        let allItems = [];
+        // Get unique sessions with their timestamps and count measurements
+        const uniqueSessions = new Map();
         let lastEvaluatedKey = undefined;
-        const baseQueryParams = {
-            TableName: process.env.RESULTS_TABLE,
-            IndexName: 'UserEmailIndex',
-            KeyConditionExpression: 'UserEmail = :email',
-            ExpressionAttributeValues: {
-                ':email': { S: user_email }
-            },
-            ScanIndexForward: false // Sort by timestamp in descending order
-        };
+        let hasMoreItems = true;
 
-        console.log('Fetching all measurements for user:', user_email, 'Page:', page, 'Limit:', limit);
+        // Keep querying until we have enough unique sessions or no more items
+        while (hasMoreItems) {
+            const sessionQueryParams = {
+                TableName: process.env.RESULTS_TABLE,
+                IndexName: 'UserEmailIndex',
+                KeyConditionExpression: 'UserEmail = :email',
+                ExpressionAttributeValues: {
+                    ':email': { S: user_email }
+                },
+                ProjectionExpression: 'SessionId, #ts',
+                ExpressionAttributeNames: {
+                    '#ts': 'Timestamp'
+                },
+                ScanIndexForward: false, // Sort by timestamp in descending order to get recent sessions first
+                Limit: 1000 // Get a reasonable batch size
+            };
 
-        do {
-            const queryParams = { ...baseQueryParams };
             if (lastEvaluatedKey) {
-                queryParams.ExclusiveStartKey = lastEvaluatedKey;
+                sessionQueryParams.ExclusiveStartKey = lastEvaluatedKey;
             }
 
-            // console.log('Querying DynamoDB with params:', JSON.stringify(queryParams)); // Verbose
-            const command = new QueryCommand(queryParams);
-            const result = await dynamodb.send(command);
-            // console.log('DynamoDB query batch result items count:', result.Items ? result.Items.length : 0); // Verbose
+            const sessionCommand = new QueryCommand(sessionQueryParams);
+            const sessionResult = await dynamodb.send(sessionCommand);
 
-            if (result.Items) {
-                allItems.push(...result.Items);
+            if (!sessionResult.Items || sessionResult.Items.length === 0) {
+                break;
             }
-            lastEvaluatedKey = result.LastEvaluatedKey;
 
-        } while (lastEvaluatedKey);
+            // Process items and count measurements
+            sessionResult.Items.forEach(item => {
+                const unmarshalledItem = unmarshall(item);
+                const sessionId = unmarshalledItem.SessionId;
+                const timestamp = unmarshalledItem.Timestamp;
+                
+                if (!uniqueSessions.has(sessionId)) {
+                    uniqueSessions.set(sessionId, {
+                        timestamp: timestamp,
+                        count: 1
+                    });
+                } else {
+                    const session = uniqueSessions.get(sessionId);
+                    // Update timestamp if this one is earlier
+                    if (new Date(timestamp) < new Date(session.timestamp)) {
+                        session.timestamp = timestamp;
+                    }
+                    session.count++;
+                    uniqueSessions.set(sessionId, session);
+                }
+            });
 
-        console.log(`Fetched a total of ${allItems.length} measurement items for user ${user_email}.`);
+            // Check if we have more items to fetch
+            lastEvaluatedKey = sessionResult.LastEvaluatedKey;
+            hasMoreItems = !!lastEvaluatedKey;
 
-        if (allItems.length === 0) {
+            // If we have enough unique sessions for the current page, we can stop
+            if (uniqueSessions.size >= page * limit) {
+                break;
+            }
+        }
+
+        if (uniqueSessions.size === 0) {
             return {
                 statusCode: 200,
                 headers: {
@@ -67,38 +98,23 @@ exports.handler = async (event) => {
             };
         }
 
-        // Group results by session ID and count measurements
-        const sessionSummaries = {};
-        allItems.forEach(item => {
-            const unmarshalledItem = unmarshall(item);
-            const sessionId = unmarshalledItem.SessionId;
-            if (!sessionSummaries[sessionId]) {
-                sessionSummaries[sessionId] = {
-                    sessionId,
-                    // Use the timestamp of the first encountered measurement for that session
-                    // Since query is ScanIndexForward: false, this will be the latest timestamp for the session
-                    timestamp: unmarshalledItem.Timestamp, 
-                    measurementCount: 0 // Initialize, will be incremented below
-                };
-            }
-            // Increment count for every measurement item belonging to this session
-            sessionSummaries[sessionId].measurementCount++;
-        });
-        
-        // Convert sessions object to array and sort by timestamp (most recent first)
-        const summariesArray = Object.values(sessionSummaries).sort((a, b) => 
-            new Date(b.timestamp) - new Date(a.timestamp)
-        );
+        // Convert to array and sort by timestamp (most recent first)
+        const sortedSessions = Array.from(uniqueSessions.entries())
+            .map(([sessionId, data]) => ({
+                sessionId,
+                timestamp: data.timestamp,
+                measurementCount: data.count
+            }))
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-        console.log(`Processed ${summariesArray.length} total session summaries for user ${user_email}.`);
-
+        // Calculate pagination
+        const totalSessions = sortedSessions.length;
         const startIndex = (page - 1) * limit;
-        const endIndex = page * limit;
-        const paginatedSummaries = summariesArray.slice(startIndex, endIndex);
-        const totalSessions = summariesArray.length;
+        const endIndex = Math.min(startIndex + limit, totalSessions);
         const hasNextPage = endIndex < totalSessions;
 
-        console.log(`Returning page ${page} for user ${user_email} with ${paginatedSummaries.length} sessions. HasNextPage: ${hasNextPage}. Total sessions: ${totalSessions}`);
+        // Get the sessions for the current page
+        const pageSessions = sortedSessions.slice(startIndex, endIndex);
 
         return {
             statusCode: 200,
@@ -107,10 +123,10 @@ exports.handler = async (event) => {
                 'Access-Control-Allow-Origin': '*'
             },
             body: JSON.stringify({
-                sessions: paginatedSummaries,
+                sessions: pageSessions,
                 currentPage: page,
                 hasNextPage: hasNextPage,
-                totalSessions: totalSessions // Useful for client-side display if needed
+                totalSessions: totalSessions
             })
         };
     } catch (error) {
