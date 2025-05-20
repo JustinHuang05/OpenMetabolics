@@ -1701,7 +1701,12 @@ class _SensorScreenState extends State<SensorScreen> {
     }
 
     return ListView(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.only(
+        left: 16.0,
+        right: 16.0,
+        top: 16.0,
+        bottom: 120.0, // Add extra padding at bottom to account for FAB
+      ),
       children: content,
     );
   }
