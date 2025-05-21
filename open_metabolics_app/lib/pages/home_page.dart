@@ -1357,10 +1357,15 @@ class _SensorScreenState extends State<SensorScreen> {
       if (mounted) {
         setState(() {
           if (e.toString().contains('network') ||
-              e.toString().contains('connection')) {
+              e.toString().contains('connection') ||
+              e.toString().contains('host lookup') ||
+              e.toString().contains('SocketException') ||
+              e.toString().contains('Failed host lookup')) {
             session.isWaitingForNetwork = true;
             session.isProcessing = false;
             session.isProcessingEnergyExpenditure = false;
+            print(
+                "Network error detected, waiting for connection: ${e.toString()}");
           } else {
             // Generic error during upload/processing, mark as failed
             session.isComplete = true;
@@ -1369,8 +1374,7 @@ class _SensorScreenState extends State<SensorScreen> {
             session.results = {
               'error': 'Failed to upload/process session: ${e.toString()}'
             };
-            _activeRecorders
-                .remove(session.sessionId); // FAILED: Clean up recorder
+            _activeRecorders.remove(session.sessionId);
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content:
                   Text('Error processing session ${session.sessionId}: $e'),
