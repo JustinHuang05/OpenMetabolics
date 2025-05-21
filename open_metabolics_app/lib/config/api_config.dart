@@ -28,4 +28,7 @@ class ApiConfig {
   static String get saveSurveyResponse => '$baseUrl/save-survey-response';
   static String get checkSurveyResponses => '$baseUrl/check-survey-responses';
   static String get getSurveyResponse => '$baseUrl/get-survey-response';
+
+  static String get getAllSessionSummaries =>
+      '$baseUrl/get-all-session-summaries';
 }

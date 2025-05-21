@@ -9,6 +9,10 @@ import '../auth/auth_service.dart';
 import 'package:provider/provider.dart';
 import 'dart:io' show SocketException;
 import 'package:amplify_flutter/amplify_flutter.dart' as amplify;
+import 'package:scrollable_clean_calendar/scrollable_clean_calendar.dart';
+import 'package:scrollable_clean_calendar/controllers/clean_calendar_controller.dart';
+import 'package:scrollable_clean_calendar/utils/enums.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 class PastSessionsPage extends StatefulWidget {
   @override
@@ -24,17 +28,66 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   bool _isNetworkError = false;
   final DateFormat _dateFormat = DateFormat('MMMM d, y');
   final DateFormat _timeFormat = DateFormat('HH:mm:ss');
+  bool _isCalendarView = false;
+  DateTime _focusedDay = DateTime.now();
+  DateTime _selectedDay = DateTime.now();
+  Map<DateTime, List<Map<String, dynamic>>> _events = {};
+
+  // Color definitions
+  final Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
+  final Color darkPurple = Color.fromRGBO(147, 112, 219, 1);
+  final Color textGray = Color.fromRGBO(66, 66, 66, 1);
+  final Color darkGray = Color.fromRGBO(44, 44, 44, 1);
 
   final ScrollController _scrollController = ScrollController();
   int _currentPage = 1;
   bool _hasNextPage = true;
   static const int _pageSize = 10;
-  String?
-      _lastSessionId; // Track the last session ID for survey response checks
+  String? _lastSessionId;
+
+  // Instead of _sessions, use a cached list of session dates for the calendar
+  List<Map<String, dynamic>> _cachedSessionSummaries = [];
+
+  DateTime get _lastDayOfCurrentMonth {
+    final now = DateTime.now();
+    final beginningNextMonth = (now.month < 12)
+        ? DateTime(now.year, now.month + 1, 1)
+        : DateTime(now.year + 1, 1, 1);
+    return beginningNextMonth.subtract(const Duration(days: 1));
+  }
+
+  DateTime? _getEarliestSessionDate() {
+    if (_cachedSessionSummaries.isEmpty) return null;
+
+    DateTime? earliestDate;
+    for (var summary in _cachedSessionSummaries) {
+      final date = DateTime.parse(summary['timestamp']).toLocal();
+      if (earliestDate == null || date.isBefore(earliestDate)) {
+        earliestDate = date;
+      }
+    }
+    // Return the first day of the month containing the earliest session
+    return earliestDate != null
+        ? DateTime(earliestDate.year, earliestDate.month, 1)
+        : null;
+  }
+
+  late CleanCalendarController calendarController;
 
   @override
   void initState() {
     super.initState();
+    // Initialize with default values first
+    calendarController = CleanCalendarController(
+      minDate: DateTime(2020, 1, 1),
+      maxDate: _lastDayOfCurrentMonth,
+      initialFocusDate: DateTime.now(),
+      rangeMode: false,
+    );
+    _initializeHive();
+    _loadCachedSessionSummaries();
+    _loadViewPreference();
+    fetchAllSessionSummaries();
     _fetchPastSessions(page: 1, isRefresh: true);
     _scrollController.addListener(_onScroll);
   }
@@ -43,6 +96,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   void dispose() {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    _saveViewPreference(_isCalendarView);
     super.dispose();
   }
 
@@ -53,6 +107,85 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         !_isLoading &&
         !_isFetchingMore) {
       _fetchPastSessions(page: _currentPage + 1);
+    }
+  }
+
+  Future<void> _initializeHive() async {
+    try {
+      if (!Hive.isBoxOpen('user_preferences')) {
+        await Hive.openBox('user_preferences');
+        print('Opened user_preferences box');
+      }
+    } catch (e) {
+      print('Error initializing Hive box: $e');
+    }
+  }
+
+  void _updateCalendarController() {
+    final earliestDate = _getEarliestSessionDate();
+    if (earliestDate != null) {
+      calendarController = CleanCalendarController(
+        minDate: earliestDate,
+        maxDate: _lastDayOfCurrentMonth,
+        initialFocusDate: DateTime.now(),
+        rangeMode: false,
+      );
+      if (mounted) {
+        setState(() {});
+      }
+    }
+  }
+
+  Future<void> _loadCachedSessionSummaries() async {
+    final box = Hive.box('session_summaries');
+    final cached = box.get('all_sessions', defaultValue: []);
+    if (cached is List) {
+      setState(() {
+        _cachedSessionSummaries = List<Map<String, dynamic>>.from(cached);
+        print('Loaded ${_cachedSessionSummaries.length} sessions from cache');
+        if (_cachedSessionSummaries.isNotEmpty) {
+          print(
+              'First few cached sessions: ${_cachedSessionSummaries.take(3).toList()}');
+        }
+      });
+      _updateCalendarController();
+    }
+  }
+
+  Future<void> fetchAllSessionSummaries() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userEmail = await authService.getCurrentUserEmail();
+    print('Fetching all session summaries for user: $userEmail');
+    final response = await http.post(
+      Uri.parse(ApiConfig.getAllSessionSummaries),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'user_email': userEmail}),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      print('Received ${data.length} session summaries from API');
+      print('First few summaries: ${data.take(3).toList()}');
+
+      // Update the cache
+      final box = Hive.box('session_summaries');
+      await box.put('all_sessions', data);
+
+      // Update the state
+      if (mounted) {
+        setState(() {
+          _cachedSessionSummaries = List<Map<String, dynamic>>.from(data);
+          print(
+              'Updated _cachedSessionSummaries with ${_cachedSessionSummaries.length} items');
+          if (_cachedSessionSummaries.isNotEmpty) {
+            print(
+                'First few cached summaries: ${_cachedSessionSummaries.take(3).toList()}');
+          }
+        });
+        _updateCalendarController();
+      }
+    } else {
+      print(
+          'Error fetching session summaries: ${response.statusCode} - ${response.body}');
     }
   }
 
@@ -102,9 +235,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
             .map((session) => SessionSummary.fromJson(session))
             .toList();
 
-        final bool hasNextPageFromApi = data['hasNextPage'] ?? false;
-        final int currentPageFromApi = data['currentPage'] ?? page;
-
         if (mounted) {
           setState(() {
             if (isRefresh) {
@@ -112,8 +242,8 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
             } else {
               _sessions.addAll(newSessions);
             }
-            _currentPage = currentPageFromApi;
-            _hasNextPage = hasNextPageFromApi;
+            _currentPage = data['currentPage'] ?? page;
+            _hasNextPage = data['hasNextPage'] ?? false;
 
             // Only check survey responses for new sessions
             if (newSessions.isNotEmpty) {
@@ -218,11 +348,217 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     return '${_dateFormat.format(dateTime)} at ${_timeFormat.format(dateTime)}';
   }
 
+  void _processSessionsForCalendar() {
+    print('Processing ${_cachedSessionSummaries.length} sessions for calendar');
+    print(
+        'First few summaries to process: ${_cachedSessionSummaries.take(3).toList()}');
+    _events.clear();
+    for (var summary in _cachedSessionSummaries) {
+      final date = DateTime.parse(summary['timestamp']).toLocal();
+      final day = DateTime(date.year, date.month, date.day);
+      if (_events[day] == null) {
+        _events[day] = [];
+      }
+      _events[day]!.add(summary);
+    }
+    print('Calendar events map has ${_events.length} days with sessions');
+    print('First few days with sessions: ${_events.keys.take(3).toList()}');
+  }
+
+  Future<void> _loadViewPreference() async {
+    try {
+      if (!Hive.isBoxOpen('user_preferences')) {
+        await Hive.openBox('user_preferences');
+      }
+      final box = Hive.box('user_preferences');
+      final isCalendarView = box.get('is_calendar_view', defaultValue: false);
+      print('Loading view preference: isCalendarView = $isCalendarView');
+      if (mounted) {
+        setState(() {
+          _isCalendarView = isCalendarView;
+        });
+      }
+    } catch (e) {
+      print('Error loading view preference: $e');
+      // If there's an error, default to list view
+      if (mounted) {
+        setState(() {
+          _isCalendarView = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _saveViewPreference(bool isCalendarView) async {
+    try {
+      if (!Hive.isBoxOpen('user_preferences')) {
+        await Hive.openBox('user_preferences');
+      }
+      final box = Hive.box('user_preferences');
+      await box.put('is_calendar_view', isCalendarView);
+      await box.flush(); // Ensure the data is written to disk
+      print('Saved view preference: isCalendarView = $isCalendarView');
+    } catch (e) {
+      print('Error saving view preference: $e');
+    }
+  }
+
+  void _toggleView(bool isCalendar) {
+    print('Toggling view to: ${isCalendar ? 'calendar' : 'list'}');
+    setState(() {
+      _isCalendarView = isCalendar;
+    });
+    _saveViewPreference(isCalendar);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
-    final Color textGray = Color.fromRGBO(66, 66, 66, 1);
+    return Scaffold(
+      body: Stack(
+        children: [
+          _isCalendarView
+              ? _buildCalendarView()
+              : _buildListView(lightPurple, textGray),
+          Positioned(
+            top: 16,
+            right: 16,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: Icon(Icons.list,
+                      color: _isCalendarView ? darkGray : darkPurple),
+                  onPressed: () => _toggleView(false),
+                ),
+                IconButton(
+                  icon: Icon(Icons.calendar_month,
+                      color: _isCalendarView ? darkPurple : darkGray),
+                  onPressed: () => _toggleView(true),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
+  Widget _buildCalendarView() {
+    // Process the sessions for the calendar
+    _processSessionsForCalendar();
+
+    return Stack(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 80.0),
+          child: ScrollableCleanCalendar(
+            calendarController: calendarController,
+            layout: Layout.BEAUTY,
+            dayBuilder: (context, day) {
+              final date = day.day;
+              final dayKey = DateTime(date.year, date.month, date.day);
+              final summaries = _events[dayKey] ?? [];
+              final hasSession = summaries.isNotEmpty;
+              print(
+                  'Building calendar day ${dayKey}: hasSession=$hasSession, summaries=${summaries.length}');
+              return GestureDetector(
+                onTap: hasSession
+                    ? () {
+                        final summary = summaries.first as Map<String, dynamic>;
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => SessionDetailsPage(
+                              sessionId: summary['sessionId'],
+                              timestamp: summary['timestamp'],
+                            ),
+                          ),
+                        ).then((_) {
+                          _refreshSingleSessionSurveyStatus(
+                              summary['sessionId']);
+                        });
+                      }
+                    : null,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    hasSession
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: darkPurple, width: 2),
+                              borderRadius: BorderRadius.circular(8),
+                              color: Colors.transparent,
+                            ),
+                            child: Text(
+                              '${date.day}',
+                              style: TextStyle(
+                                color: darkPurple,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          )
+                        : Text(
+                            '${date.day}',
+                            style: TextStyle(
+                              color: textGray,
+                              fontWeight: FontWeight.normal,
+                            ),
+                          ),
+                  ],
+                ),
+              );
+            },
+            weekdayTextStyle: TextStyle(
+              color: textGray,
+              fontWeight: FontWeight.w600,
+            ),
+            monthBuilder: (context, month) {
+              return Padding(
+                padding:
+                    const EdgeInsets.only(left: 8.0, bottom: 0.0, top: 2.0),
+                child: Text(
+                  month,
+                  textAlign: TextAlign.left,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: darkPurple,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        if (_isLoading || _cachedSessionSummaries.isEmpty)
+          Container(
+            color: Colors.white.withOpacity(0.8),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    color: lightPurple,
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    'Loading sessions...',
+                    style: TextStyle(
+                      color: darkPurple,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildListView(Color lightPurple, Color textGray) {
     if (_isLoading && _sessions.isEmpty) {
       return Center(child: CircularProgressIndicator(color: lightPurple));
     } else if (_isNetworkError && _sessions.isEmpty) {
@@ -326,7 +662,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         onRefresh: () => _fetchPastSessions(page: 1, isRefresh: true),
         child: ListView.builder(
           controller: _scrollController,
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.fromLTRB(16.0, 80.0, 16.0, 16.0),
           itemCount: _sessions.length + (_hasNextPage ? 1 : 0),
           itemBuilder: (context, index) {
             if (index == _sessions.length && _hasNextPage) {
