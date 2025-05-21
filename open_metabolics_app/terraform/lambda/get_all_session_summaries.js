@@ -1,29 +1,38 @@
-const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, QueryCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBClient, QueryCommand } = require("@aws-sdk/client-dynamodb");
+const { unmarshall } = require("@aws-sdk/util-dynamodb");
 
-const client = new DynamoDBClient({});
-const docClient = DynamoDBDocumentClient.from(client);
+const dynamodb = new DynamoDBClient();
 const RESULTS_TABLE = process.env.RESULTS_TABLE;
 
 exports.handler = async (event) => {
   let user_email;
   try {
-    user_email = JSON.parse(event.body).user_email;
-    console.log('Processing request for user:', user_email);
+    const body = JSON.parse(event.body);
+    user_email = body.user_email;
   } catch (e) {
-    console.error('Error parsing request:', e);
-    return { 
-      statusCode: 400, 
+    return {
+      statusCode: 400,
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       },
-      body: JSON.stringify({ error: 'Missing or invalid user_email' })
+      body: JSON.stringify({ error: 'Invalid request body' })
+    };
+  }
+
+  if (!user_email) {
+    return {
+      statusCode: 400,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      },
+      body: JSON.stringify({ error: 'User email is required' })
     };
   }
 
   let items = [];
-  let lastKey = undefined;
+  let lastKey = null;
   let queryCount = 0;
   
   try {
@@ -35,18 +44,20 @@ exports.handler = async (event) => {
         TableName: RESULTS_TABLE,
         IndexName: 'UserEmailIndex',
         KeyConditionExpression: 'UserEmail = :email',
-        ExpressionAttributeValues: { ':email': user_email },
+        ExpressionAttributeValues: { ':email': { S: user_email } },
         ProjectionExpression: 'SessionId, #ts',
         ExpressionAttributeNames: {
           '#ts': 'Timestamp'
         },
         ExclusiveStartKey: lastKey,
+        Limit: 1000 // Process in batches of 1000 items
       };
       
       console.log('Query params:', JSON.stringify(params));
       const command = new QueryCommand(params);
-      const result = await docClient.send(command);
+      const result = await dynamodb.send(command);
       console.log(`Query ${queryCount} returned ${result.Items.length} items`);
+      
       if (result.Items.length > 0) {
         console.log('First few items:', JSON.stringify(result.Items.slice(0, 3)));
       }
@@ -68,39 +79,57 @@ exports.handler = async (event) => {
       console.log('First few items:', JSON.stringify(items.slice(0, 3)));
     }
 
-    // Return as a list of { sessionId, timestamp } with lowercase field names
+    // Count measurements for each session
+    const sessionCounts = new Map();
+    items.forEach(item => {
+      const sessionId = item.SessionId.S;
+      const timestamp = item.Timestamp.S;
+      
+      if (!sessionCounts.has(sessionId)) {
+        sessionCounts.set(sessionId, {
+          timestamp: timestamp,
+          count: 1
+        });
+      } else {
+        const session = sessionCounts.get(sessionId);
+        // Update timestamp if this one is earlier
+        if (new Date(timestamp) < new Date(session.timestamp)) {
+          session.timestamp = timestamp;
+        }
+        session.count++;
+        sessionCounts.set(sessionId, session);
+      }
+    });
+
+    // Convert to array and sort by timestamp
+    const sortedSessions = Array.from(sessionCounts.entries())
+      .map(([sessionId, data]) => ({
+        sessionId,
+        timestamp: data.timestamp,
+        measurementCount: data.count
+      }))
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
     const response = {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       },
-      body: JSON.stringify(
-        items.map(item => ({
-          sessionId: item.SessionId,
-          timestamp: item.Timestamp,
-        }))
-      ),
+      body: JSON.stringify(sortedSessions)
     };
     
-    console.log(`Returning ${items.length} session summaries`);
-    console.log('First few summaries in response:', JSON.stringify(items.slice(0, 3).map(item => ({
-      sessionId: item.SessionId,
-      timestamp: item.Timestamp,
-    }))));
+    console.log(`Returning ${sortedSessions.length} session summaries`);
     return response;
   } catch (error) {
-    console.error('Error querying DynamoDB:', error);
+    console.error('Error:', error);
     return {
       statusCode: 500,
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       },
-      body: JSON.stringify({ 
-        error: 'Internal Server Error',
-        details: error.message
-      })
+      body: JSON.stringify({ error: 'Internal server error' })
     };
   }
 };

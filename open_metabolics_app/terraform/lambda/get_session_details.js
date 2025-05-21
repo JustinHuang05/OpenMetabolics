@@ -29,11 +29,32 @@ exports.handler = async (event) => {
 
         console.log('Querying DynamoDB with params:', JSON.stringify(queryParams));
 
-        const command = new QueryCommand(queryParams);
-        const result = await dynamodb.send(command);
-        console.log('DynamoDB query result:', JSON.stringify(result));
+        let allItems = [];
+        let lastEvaluatedKey = null;
+        let queryCount = 0;
 
-        if (!result.Items || result.Items.length === 0) {
+        do {
+            queryCount++;
+            console.log(`Executing query ${queryCount} for session ${session_id}`);
+            
+            if (lastEvaluatedKey) {
+                queryParams.ExclusiveStartKey = lastEvaluatedKey;
+            }
+
+            const command = new QueryCommand(queryParams);
+            const result = await dynamodb.send(command);
+            console.log(`Query ${queryCount} returned ${result.Items.length} items`);
+
+            if (result.Items && result.Items.length > 0) {
+                allItems = allItems.concat(result.Items);
+            }
+
+            lastEvaluatedKey = result.LastEvaluatedKey;
+        } while (lastEvaluatedKey);
+
+        console.log(`Total items fetched: ${allItems.length}`);
+
+        if (allItems.length === 0) {
             return {
                 statusCode: 404,
                 body: JSON.stringify({ 
@@ -47,10 +68,11 @@ exports.handler = async (event) => {
             sessionId: session_id,
             timestamp: '',
             basalMetabolicRate: null,
-            results: []
+            results: [],
+            measurementCount: allItems.length
         };
 
-        result.Items.forEach(item => {
+        allItems.forEach(item => {
             const unmarshalledItem = unmarshall(item);
             
             // Set session-level data from the first item

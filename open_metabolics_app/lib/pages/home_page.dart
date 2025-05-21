@@ -20,6 +20,7 @@ import 'past_sessions_page.dart';
 import '../widgets/energy_expenditure_card.dart';
 import '../widgets/feedback_bottom_drawer.dart';
 import 'package:flutter/services.dart'; // Add this import for PlatformException
+import 'package:hive/hive.dart';
 
 // Session status class to track session state
 class SessionStatus {
@@ -1204,6 +1205,37 @@ class _SensorScreenState extends State<SensorScreen> {
           session.results = results;
           _activeRecorders.remove(session.sessionId);
         });
+
+        // Update session summaries cache
+        try {
+          final box = Hive.box('session_summaries');
+          final cachedSummaries =
+              box.get('all_sessions', defaultValue: []) as List;
+          final updatedSummaries = cachedSummaries.map((item) {
+            if (item is Map) {
+              return Map<String, dynamic>.from(item);
+            }
+            return <String, dynamic>{};
+          }).toList();
+
+          // Add new session summary
+          updatedSummaries.add({
+            'sessionId': session.sessionId,
+            'timestamp': session.startTime.toUtc().toIso8601String(),
+            'measurementCount': results.length
+          });
+
+          // Sort by timestamp (most recent first)
+          updatedSummaries.sort((a, b) => DateTime.parse(b['timestamp'])
+              .compareTo(DateTime.parse(a['timestamp'])));
+
+          // Update cache
+          await box.put('all_sessions', updatedSummaries);
+          await box.put('last_update_timestamp',
+              DateTime.now().toUtc().toIso8601String());
+        } catch (e) {
+          print('Error updating session summaries cache: $e');
+        }
       }
 
       // --- Show dialog and survey logic remains same ---

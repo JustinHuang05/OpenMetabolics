@@ -13,6 +13,7 @@ import 'package:scrollable_clean_calendar/scrollable_clean_calendar.dart';
 import 'package:scrollable_clean_calendar/controllers/clean_calendar_controller.dart';
 import 'package:scrollable_clean_calendar/utils/enums.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'day_sessions_page.dart';
 
 class PastSessionsPage extends StatefulWidget {
   @override
@@ -32,6 +33,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
   Map<DateTime, List<Map<String, dynamic>>> _events = {};
+  bool _hasLoadedListViewData = false;
 
   // Color definitions
   final Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
@@ -85,10 +87,10 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
       rangeMode: false,
     );
     _initializeHive();
-    _loadCachedSessionSummaries();
     _loadViewPreference();
-    fetchAllSessionSummaries();
-    _fetchPastSessions(page: 1, isRefresh: true);
+    // Load cached data first, then check for updates in background
+    _loadCachedSessionSummaries();
+    // Remove the redundant fetch since _loadCachedSessionSummaries will handle it
     _scrollController.addListener(_onScroll);
   }
 
@@ -137,55 +139,172 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   }
 
   Future<void> _loadCachedSessionSummaries() async {
-    final box = Hive.box('session_summaries');
-    final cached = box.get('all_sessions', defaultValue: []);
-    if (cached is List) {
-      setState(() {
-        _cachedSessionSummaries = List<Map<String, dynamic>>.from(cached);
-        print('Loaded ${_cachedSessionSummaries.length} sessions from cache');
-        if (_cachedSessionSummaries.isNotEmpty) {
-          print(
-              'First few cached sessions: ${_cachedSessionSummaries.take(3).toList()}');
+    try {
+      final box = Hive.box('session_summaries');
+      final cached = box.get('all_sessions', defaultValue: []);
+
+      if (cached is List && cached.isNotEmpty) {
+        print('Loading cached data with ${cached.length} sessions');
+        // Properly cast the cached data to the correct type
+        final List<Map<String, dynamic>> typedCachedData = cached.map((item) {
+          if (item is Map) {
+            return Map<String, dynamic>.from(item);
+          }
+          return <String, dynamic>{};
+        }).toList();
+
+        setState(() {
+          _cachedSessionSummaries = typedCachedData;
+          _isLoading = false;
+          // Update sessions list if in list view
+          if (!_isCalendarView) {
+            _sessions = typedCachedData
+                .map((item) => SessionSummary.fromJson(item))
+                .whereType<SessionSummary>()
+                .toList();
+            _hasLoadedListViewData = true;
+          }
+        });
+        _updateCalendarController();
+
+        // Check for updates in the background
+        _checkForUpdates();
+      } else {
+        print('No cached data found, fetching fresh data');
+        await fetchAllSessionSummaries();
+        // After fetching, update both views
+        final updatedCache = box.get('all_sessions', defaultValue: []) as List;
+        if (updatedCache.isNotEmpty) {
+          setState(() {
+            _cachedSessionSummaries =
+                List<Map<String, dynamic>>.from(updatedCache);
+            _isLoading = false;
+            // If we're in list view, update the sessions list too
+            if (!_isCalendarView) {
+              _sessions = _cachedSessionSummaries
+                  .map((item) => SessionSummary.fromJson(item))
+                  .whereType<SessionSummary>()
+                  .toList();
+              _hasLoadedListViewData = true;
+            }
+          });
+          _updateCalendarController();
         }
-      });
-      _updateCalendarController();
+      }
+    } catch (e) {
+      print('Error loading cached data: $e');
+      await fetchAllSessionSummaries();
+    }
+  }
+
+  Future<void> _checkForUpdates() async {
+    try {
+      final box = Hive.box('session_summaries');
+      final lastUpdateTimestamp = box.get('last_update_timestamp') as String?;
+
+      if (lastUpdateTimestamp != null) {
+        final authService = Provider.of<AuthService>(context, listen: false);
+        final userEmail = await authService.getCurrentUserEmail();
+
+        final response = await http.post(
+          Uri.parse(ApiConfig.getAllSessionSummaries),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'user_email': userEmail,
+            'since_timestamp': lastUpdateTimestamp,
+          }),
+        );
+
+        if (response.statusCode == 200) {
+          final List<dynamic> newData = jsonDecode(response.body);
+          if (newData.isNotEmpty) {
+            print('Found ${newData.length} new sessions, updating cache');
+            final cachedSummaries =
+                box.get('all_sessions', defaultValue: []) as List;
+            // Properly cast the cached data
+            final updatedSummaries = cachedSummaries.map((item) {
+              if (item is Map) {
+                return Map<String, dynamic>.from(item);
+              }
+              return <String, dynamic>{};
+            }).toList();
+
+            for (var newSummary in newData) {
+              final typedNewSummary = Map<String, dynamic>.from(newSummary);
+              updatedSummaries.removeWhere((summary) =>
+                  summary['sessionId'] == typedNewSummary['sessionId']);
+              updatedSummaries.add(typedNewSummary);
+            }
+
+            updatedSummaries.sort((a, b) => DateTime.parse(b['timestamp'])
+                .compareTo(DateTime.parse(a['timestamp'])));
+
+            await box.put('all_sessions', updatedSummaries);
+            await box.put('last_update_timestamp',
+                DateTime.now().toUtc().toIso8601String());
+
+            if (mounted) {
+              setState(() {
+                _cachedSessionSummaries = updatedSummaries;
+              });
+              _updateCalendarController();
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('Error checking for updates: $e');
     }
   }
 
   Future<void> fetchAllSessionSummaries() async {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final userEmail = await authService.getCurrentUserEmail();
-    print('Fetching all session summaries for user: $userEmail');
-    final response = await http.post(
-      Uri.parse(ApiConfig.getAllSessionSummaries),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'user_email': userEmail}),
-    );
-    if (response.statusCode == 200) {
-      final List<dynamic> data = jsonDecode(response.body);
-      print('Received ${data.length} session summaries from API');
-      print('First few summaries: ${data.take(3).toList()}');
+    setState(() {
+      _isLoading = true;
+    });
 
-      // Update the cache
-      final box = Hive.box('session_summaries');
-      await box.put('all_sessions', data);
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userEmail = await authService.getCurrentUserEmail();
 
-      // Update the state
+      final response = await http.post(
+        Uri.parse(ApiConfig.getAllSessionSummaries),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'user_email': userEmail}),
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        print('Received ${data.length} session summaries from API');
+
+        // Update cache
+        final box = Hive.box('session_summaries');
+        await box.put('all_sessions', data);
+        await box.put(
+            'last_update_timestamp', DateTime.now().toUtc().toIso8601String());
+
+        if (mounted) {
+          setState(() {
+            _cachedSessionSummaries = List<Map<String, dynamic>>.from(data);
+            _isLoading = false;
+          });
+          _updateCalendarController();
+        }
+      } else {
+        print(
+            'Error fetching session summaries: ${response.statusCode} - ${response.body}');
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error fetching session summaries: $e');
       if (mounted) {
         setState(() {
-          _cachedSessionSummaries = List<Map<String, dynamic>>.from(data);
-          print(
-              'Updated _cachedSessionSummaries with ${_cachedSessionSummaries.length} items');
-          if (_cachedSessionSummaries.isNotEmpty) {
-            print(
-                'First few cached summaries: ${_cachedSessionSummaries.take(3).toList()}');
-          }
+          _isLoading = false;
         });
-        _updateCalendarController();
       }
-    } else {
-      print(
-          'Error fetching session summaries: ${response.statusCode} - ${response.body}');
     }
   }
 
@@ -210,92 +329,87 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     }
 
     try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final userEmail = await authService.getCurrentUserEmail();
+      // Get cached data
+      final box = Hive.box('session_summaries');
+      final cachedSummaries = box.get('all_sessions', defaultValue: []) as List;
 
-      if (userEmail == null) {
-        final isSignedIn = await authService.isSignedIn();
-        if (!isSignedIn) throw Exception('User not logged in');
-        throw Exception('Unable to get user information');
-      }
-
-      final sessionsResponse = await http.post(
-        Uri.parse(ApiConfig.getPastSessionsSummary),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'user_email': userEmail,
-          'page': page,
-          'limit': _pageSize,
-        }),
-      );
-
-      if (sessionsResponse.statusCode == 200) {
-        final data = jsonDecode(sessionsResponse.body);
-        final newSessions = (data['sessions'] as List)
-            .map((session) => SessionSummary.fromJson(session))
-            .toList();
-
-        if (mounted) {
-          setState(() {
-            if (isRefresh) {
-              _sessions = newSessions;
-            } else {
-              _sessions.addAll(newSessions);
-            }
-            _currentPage = data['currentPage'] ?? page;
-            _hasNextPage = data['hasNextPage'] ?? false;
-
-            // Only check survey responses for new sessions
-            if (newSessions.isNotEmpty) {
-              final newSessionIds = newSessions
-                  .where((s) => !_surveyResponses.containsKey(s.sessionId))
-                  .map((s) => s.sessionId)
-                  .toList();
-              if (newSessionIds.isNotEmpty) {
-                _checkSurveyResponses(userEmail, newSessionIds);
-              }
-            }
-          });
+      // If cache is empty, fetch from Lambda first
+      if (cachedSummaries.isEmpty) {
+        print('Cache is empty, fetching from Lambda');
+        await fetchAllSessionSummaries();
+        // After fetching, get the updated cache
+        final updatedCache = box.get('all_sessions', defaultValue: []) as List;
+        if (updatedCache.isEmpty) {
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _isFetchingMore = false;
+            });
+          }
+          return;
         }
-      } else {
-        final errorData = jsonDecode(sessionsResponse.body);
-        throw Exception(
-            'Failed to fetch past sessions: ${errorData['error']}${errorData['details'] != null ? '\nDetails: ${errorData['details']}' : ''}');
       }
-    } on SocketException catch (e) {
+
+      // Convert cached data to SessionSummary objects
+      final allSessions = cachedSummaries
+          .map((item) {
+            if (item is Map) {
+              return SessionSummary.fromJson(Map<String, dynamic>.from(item));
+            }
+            return null;
+          })
+          .whereType<SessionSummary>()
+          .toList();
+
+      // Calculate pagination
+      final startIndex = (page - 1) * _pageSize;
+      final endIndex = startIndex + _pageSize;
+      final hasNextPage = endIndex < allSessions.length;
+
+      // Get sessions for current page
+      final pageSessions = allSessions.sublist(startIndex,
+          endIndex > allSessions.length ? allSessions.length : endIndex);
+
       if (mounted) {
         setState(() {
-          _isNetworkError = true;
-          _errorMessage = 'No internet connection';
-        });
-      }
-    } on amplify.NetworkException catch (e) {
-      if (mounted) {
-        setState(() {
-          _isNetworkError = true;
-          _errorMessage = 'No internet connection';
+          if (isRefresh) {
+            _sessions = pageSessions;
+          } else {
+            _sessions.addAll(pageSessions);
+          }
+          _currentPage = page;
+          _hasNextPage = hasNextPage;
+          _hasLoadedListViewData = true;
+          _isLoading = false;
+          _isFetchingMore = false;
+
+          // Check survey responses for new sessions
+          if (pageSessions.isNotEmpty) {
+            final newSessionIds = pageSessions
+                .where((s) => !_surveyResponses.containsKey(s.sessionId))
+                .map((s) => s.sessionId)
+                .toList();
+            if (newSessionIds.isNotEmpty) {
+              final authService =
+                  Provider.of<AuthService>(context, listen: false);
+              authService.getCurrentUserEmail().then((userEmail) {
+                if (userEmail != null) {
+                  _checkSurveyResponses(userEmail, newSessionIds);
+                }
+              });
+            }
+          }
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          if (e.toString().contains('User not logged in')) {
-            _errorMessage = 'Please log in to view your past sessions';
-          } else if (e.toString().contains('Unable to get user information')) {
-            _errorMessage = 'Unable to get user information. Please try again.';
-          } else {
-            _errorMessage = e.toString();
-          }
-        });
-      }
-      print('Error fetching past sessions (page $page): $e');
-    } finally {
-      if (mounted) {
-        setState(() {
+          _errorMessage = e.toString();
           _isLoading = false;
           _isFetchingMore = false;
         });
       }
+      print('Error fetching past sessions: $e');
     }
   }
 
@@ -409,6 +523,11 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
       _isCalendarView = isCalendar;
     });
     _saveViewPreference(isCalendar);
+
+    // Load list view data if we haven't already and we're switching to list view
+    if (!isCalendar && !_hasLoadedListViewData) {
+      _fetchPastSessions(page: 1, isRefresh: true);
+    }
   }
 
   @override
@@ -425,15 +544,27 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton(
-                  icon: Icon(Icons.list,
-                      color: _isCalendarView ? darkGray : darkPurple),
-                  onPressed: () => _toggleView(false),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: IconButton(
+                    icon: Icon(Icons.list,
+                        color: _isCalendarView ? darkGray : darkPurple),
+                    onPressed: () => _toggleView(false),
+                  ),
                 ),
-                IconButton(
-                  icon: Icon(Icons.calendar_month,
-                      color: _isCalendarView ? darkPurple : darkGray),
-                  onPressed: () => _toggleView(true),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: IconButton(
+                    icon: Icon(Icons.calendar_month,
+                        color: _isCalendarView ? darkPurple : darkGray),
+                    onPressed: () => _toggleView(true),
+                  ),
                 ),
               ],
             ),
@@ -449,34 +580,30 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
 
     return Stack(
       children: [
+        // Calendar as the base layer
         Padding(
-          padding: const EdgeInsets.only(top: 80.0),
+          padding: const EdgeInsets.only(top: 0.0),
           child: ScrollableCleanCalendar(
             calendarController: calendarController,
             layout: Layout.BEAUTY,
+            spaceBetweenMonthAndCalendar: 0,
             dayBuilder: (context, day) {
               final date = day.day;
               final dayKey = DateTime(date.year, date.month, date.day);
               final summaries = _events[dayKey] ?? [];
               final hasSession = summaries.isNotEmpty;
-              print(
-                  'Building calendar day ${dayKey}: hasSession=$hasSession, summaries=${summaries.length}');
               return GestureDetector(
                 onTap: hasSession
                     ? () {
-                        final summary = summaries.first as Map<String, dynamic>;
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => SessionDetailsPage(
-                              sessionId: summary['sessionId'],
-                              timestamp: summary['timestamp'],
+                            builder: (context) => DaySessionsPage(
+                              selectedDay: dayKey,
+                              sessions: summaries,
                             ),
                           ),
-                        ).then((_) {
-                          _refreshSingleSessionSurveyStatus(
-                              summary['sessionId']);
-                        });
+                        );
                       }
                     : null,
                 child: Container(
@@ -514,7 +641,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
             monthBuilder: (context, month) {
               return Padding(
                 padding:
-                    const EdgeInsets.only(left: 8.0, bottom: 0.0, top: 2.0),
+                    const EdgeInsets.only(left: 0.0, bottom: 0.0, top: 8.0),
                 child: Text(
                   month,
                   textAlign: TextAlign.left,
@@ -528,7 +655,27 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
             },
           ),
         ),
-        if (_isLoading || _cachedSessionSummaries.isEmpty)
+        // View toggle icons as the top layer
+        Positioned(
+          top: 16,
+          right: 16,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: Icon(Icons.list,
+                    color: _isCalendarView ? darkGray : darkPurple),
+                onPressed: () => _toggleView(false),
+              ),
+              IconButton(
+                icon: Icon(Icons.calendar_month,
+                    color: _isCalendarView ? darkPurple : darkGray),
+                onPressed: () => _toggleView(true),
+              ),
+            ],
+          ),
+        ),
+        if (_isLoading)
           Container(
             color: Colors.white.withOpacity(0.8),
             child: Center(
@@ -556,7 +703,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   }
 
   Widget _buildListView(Color lightPurple, Color textGray) {
-    if (_isLoading && _sessions.isEmpty) {
+    if (_isLoading) {
       return Center(child: CircularProgressIndicator(color: lightPurple));
     } else if (_isNetworkError && _sessions.isEmpty) {
       return Center(
@@ -637,17 +784,13 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.history,
-              size: 48,
-              color: lightPurple,
-            ),
+            CircularProgressIndicator(color: lightPurple),
             SizedBox(height: 16),
             Text(
-              'No past sessions found',
+              'Loading sessions...',
               style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey,
+                color: textGray,
+                fontSize: 16,
               ),
             ),
           ],
