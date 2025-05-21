@@ -479,34 +479,31 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                         });
                       }
                     : null,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    hasSession
-                        ? Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: darkPurple, width: 2),
-                              borderRadius: BorderRadius.circular(8),
-                              color: Colors.transparent,
-                            ),
-                            child: Text(
-                              '${date.day}',
-                              style: TextStyle(
-                                color: darkPurple,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          )
-                        : Text(
-                            '${date.day}',
-                            style: TextStyle(
-                              color: textGray,
-                              fontWeight: FontWeight.normal,
-                            ),
+                child: Container(
+                  margin: const EdgeInsets.all(2),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (hasSession)
+                        Container(
+                          width: double.infinity,
+                          height: double.infinity,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: darkPurple, width: 2),
+                            borderRadius: BorderRadius.circular(8),
+                            color: Colors.transparent,
                           ),
-                  ],
+                        ),
+                      Text(
+                        '${date.day}',
+                        style: TextStyle(
+                          color: hasSession ? darkPurple : textGray,
+                          fontWeight:
+                              hasSession ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               );
             },
