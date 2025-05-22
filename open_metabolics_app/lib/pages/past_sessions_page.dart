@@ -533,43 +533,59 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          _isCalendarView
-              ? _buildCalendarView()
-              : _buildListView(lightPurple, textGray),
-          Positioned(
-            top: 16,
-            right: 16,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: IconButton(
-                    icon: Icon(Icons.list,
-                        color: _isCalendarView ? darkGray : darkPurple),
-                    onPressed: () => _toggleView(false),
-                  ),
-                ),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: IconButton(
-                    icon: Icon(Icons.calendar_month,
-                        color: _isCalendarView ? darkPurple : darkGray),
-                    onPressed: () => _toggleView(true),
-                  ),
-                ),
-              ],
+      backgroundColor: Colors.transparent,
+      body: Container(
+        color: Colors.transparent,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: _isCalendarView
+                  ? _buildCalendarView()
+                  : _buildListView(lightPurple, textGray),
             ),
-          ),
-        ],
+            // View toggle icons at the bottom
+            Positioned(
+              bottom: 16,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(30),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: Icon(Icons.list,
+                            color: _isCalendarView ? darkGray : darkPurple),
+                        onPressed: () => _toggleView(false),
+                      ),
+                      Container(
+                        width: 1,
+                        height: 24,
+                        color: Colors.grey[300],
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.calendar_month,
+                            color: _isCalendarView ? darkPurple : darkGray),
+                        onPressed: () => _toggleView(true),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -578,127 +594,162 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     // Process the sessions for the calendar
     _processSessionsForCalendar();
 
-    return Stack(
-      children: [
-        // Calendar as the base layer
-        Padding(
-          padding: const EdgeInsets.only(top: 0.0),
-          child: ScrollableCleanCalendar(
-            calendarController: calendarController,
-            layout: Layout.BEAUTY,
-            spaceBetweenMonthAndCalendar: 0,
-            dayBuilder: (context, day) {
-              final date = day.day;
-              final dayKey = DateTime(date.year, date.month, date.day);
-              final summaries = _events[dayKey] ?? [];
-              final hasSession = summaries.isNotEmpty;
-              return GestureDetector(
-                onTap: hasSession
-                    ? () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => DaySessionsPage(
-                              selectedDay: dayKey,
-                              sessions: summaries,
+    return Container(
+      color: Colors.transparent,
+      child: Stack(
+        children: [
+          // Calendar fills all available space, with bottom padding for the pill
+          Column(
+            children: [
+              Expanded(
+                child: Stack(
+                  children: [
+                    ScrollableCleanCalendar(
+                      calendarController: calendarController,
+                      layout: Layout.BEAUTY,
+                      spaceBetweenMonthAndCalendar: 0,
+                      dayBuilder: (context, day) {
+                        final date = day.day;
+                        final dayKey =
+                            DateTime(date.year, date.month, date.day);
+                        final summaries = _events[dayKey] ?? [];
+                        final hasSession = summaries.isNotEmpty;
+                        return GestureDetector(
+                          onTap: hasSession
+                              ? () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => DaySessionsPage(
+                                        selectedDay: dayKey,
+                                        sessions: summaries,
+                                      ),
+                                    ),
+                                  );
+                                }
+                              : null,
+                          child: Container(
+                            margin: const EdgeInsets.all(2),
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                if (hasSession)
+                                  Container(
+                                    width: double.infinity,
+                                    height: double.infinity,
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                          color: darkPurple, width: 2),
+                                      borderRadius: BorderRadius.circular(8),
+                                      color: Colors.transparent,
+                                    ),
+                                  ),
+                                Text(
+                                  '${date.day}',
+                                  style: TextStyle(
+                                    color: hasSession ? darkPurple : textGray,
+                                    fontWeight: hasSession
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         );
-                      }
-                    : null,
-                child: Container(
-                  margin: const EdgeInsets.all(2),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      if (hasSession)
-                        Container(
-                          width: double.infinity,
-                          height: double.infinity,
-                          decoration: BoxDecoration(
-                            border: Border.all(color: darkPurple, width: 2),
-                            borderRadius: BorderRadius.circular(8),
-                            color: Colors.transparent,
-                          ),
-                        ),
-                      Text(
-                        '${date.day}',
-                        style: TextStyle(
-                          color: hasSession ? darkPurple : textGray,
-                          fontWeight:
-                              hasSession ? FontWeight.bold : FontWeight.normal,
-                        ),
+                      },
+                      weekdayTextStyle: TextStyle(
+                        color: textGray,
+                        fontWeight: FontWeight.w600,
                       ),
-                    ],
-                  ),
+                      monthBuilder: (context, month) {
+                        return Padding(
+                          padding: const EdgeInsets.only(
+                              left: 0.0, bottom: 0.0, top: 0.0),
+                          child: Text(
+                            month,
+                            textAlign: TextAlign.left,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: darkPurple,
+                            ),
+                          ),
+                        );
+                      },
+                      footer: SizedBox(height: 30),
+                    ),
+                  ],
                 ),
-              );
-            },
-            weekdayTextStyle: TextStyle(
-              color: textGray,
-              fontWeight: FontWeight.w600,
-            ),
-            monthBuilder: (context, month) {
-              return Padding(
-                padding:
-                    const EdgeInsets.only(left: 0.0, bottom: 0.0, top: 8.0),
-                child: Text(
-                  month,
-                  textAlign: TextAlign.left,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: darkPurple,
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        // View toggle icons as the top layer
-        Positioned(
-          top: 16,
-          right: 16,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: Icon(Icons.list,
-                    color: _isCalendarView ? darkGray : darkPurple),
-                onPressed: () => _toggleView(false),
-              ),
-              IconButton(
-                icon: Icon(Icons.calendar_month,
-                    color: _isCalendarView ? darkPurple : darkGray),
-                onPressed: () => _toggleView(true),
               ),
             ],
           ),
-        ),
-        if (_isLoading)
-          Container(
-            color: Colors.white.withOpacity(0.8),
+          // The pill stays absolutely positioned above the nav bar
+          Positioned(
+            bottom: 16,
+            left: 0,
+            right: 0,
             child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    color: lightPurple,
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    'Loading sessions...',
-                    style: TextStyle(
-                      color: darkPurple,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: Offset(0, 2),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.list,
+                          color: _isCalendarView ? darkGray : darkPurple),
+                      onPressed: () => _toggleView(false),
+                    ),
+                    Container(
+                      width: 1,
+                      height: 24,
+                      color: Colors.grey[300],
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.calendar_month,
+                          color: _isCalendarView ? darkPurple : darkGray),
+                      onPressed: () => _toggleView(true),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-      ],
+          if (_isLoading)
+            Container(
+              color: Colors.white.withOpacity(0.8),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      color: lightPurple,
+                    ),
+                    SizedBox(height: 16),
+                    Text(
+                      'Loading sessions...',
+                      style: TextStyle(
+                        color: darkPurple,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -802,7 +853,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         onRefresh: () => _fetchPastSessions(page: 1, isRefresh: true),
         child: ListView.builder(
           controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(16.0, 80.0, 16.0, 16.0),
+          padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 80.0),
           itemCount: _sessions.length + (_hasNextPage ? 1 : 0),
           itemBuilder: (context, index) {
             if (index == _sessions.length && _hasNextPage) {

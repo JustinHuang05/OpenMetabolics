@@ -560,10 +560,11 @@ packages:
   scrollable_clean_calendar:
     dependency: "direct main"
     description:
-      name: scrollable_clean_calendar
-      sha256: e68f13b49dd70f70d6e6cbb39e3a76d2ff920671cd9b10a33370dd298c0f595e
-      url: "https://pub.dev"
-    source: hosted
+      path: "."
+      ref: master
+      resolved-ref: "512b4d4d4faedb6345a72ac944f8c1fa89845564"
+      url: "https://github.com/JustinHuang05/scrollable_clean_calendar.git"
+    source: git
     version: "1.5.0"
   scrollable_positioned_list:
     dependency: transitive
