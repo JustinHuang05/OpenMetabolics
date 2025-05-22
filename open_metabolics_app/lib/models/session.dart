@@ -3,12 +3,14 @@ class Session {
   final String timestamp;
   final List<SessionResult> results;
   final double? basalMetabolicRate;
+  final int? measurementCount;
 
   Session({
     required this.sessionId,
     required this.timestamp,
     required this.results,
     this.basalMetabolicRate,
+    this.measurementCount,
   });
 
   factory Session.fromJson(Map<String, dynamic> json) {
@@ -19,6 +21,7 @@ class Session {
           .map((result) => SessionResult.fromJson(result))
           .toList(),
       basalMetabolicRate: json['basalMetabolicRate']?.toDouble(),
+      measurementCount: json['measurementCount'],
     );
   }
 }

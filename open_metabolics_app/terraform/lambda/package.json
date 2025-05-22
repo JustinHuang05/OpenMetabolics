@@ -1,10 +1,10 @@
 {
-  "name": "save-survey-response",
+  "name": "get-all-session-summaries",
   "version": "1.0.0",
-  "description": "Lambda function to save survey responses",
-  "main": "save_survey_response.js",
+  "description": "Lambda function to get all session summaries",
+  "main": "get_all_session_summaries.js",
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.525.0",
-    "@aws-sdk/util-dynamodb": "^3.525.0"
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0"
   }
 } 

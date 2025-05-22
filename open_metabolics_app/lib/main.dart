@@ -7,12 +7,16 @@ import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
 import 'auth/amplify_config.dart';
 import 'providers/user_profile_provider.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 Future<void> main() async {
   // Load environment variables
   await dotenv.load(fileName: ".env");
 
   WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
+  await Hive.openBox('session_summaries');
+  await Hive.openBox('user_preferences');
 
   // Configure Amplify
   try {

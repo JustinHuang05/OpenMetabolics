@@ -268,7 +268,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                           ),
                           SizedBox(height: 4),
                           Text(
-                            'Total Windows: ${_session!.results.length}',
+                            'Measurements: ${_session!.results.length}',
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                           SizedBox(height: 2),
