@@ -1222,7 +1222,7 @@ class _SensorScreenState extends State<SensorScreen> {
           updatedSummaries.add({
             'sessionId': session.sessionId,
             'timestamp': session.startTime.toUtc().toIso8601String(),
-            'measurementCount': results.length
+            'measurementCount': (results['results'] ?? []).length
           });
 
           // Sort by timestamp (most recent first)
@@ -1283,7 +1283,7 @@ class _SensorScreenState extends State<SensorScreen> {
                             ),
                             SizedBox(height: 8),
                             Text(
-                              'Total Windows: ${(results['total_windows_processed'] ?? 0)}',
+                              'Measurements: ${(results['results'] ?? []).length}',
                               style: Theme.of(context).textTheme.bodyLarge,
                             ),
                             Text(
