@@ -40,6 +40,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   final Color darkPurple = Color.fromRGBO(147, 112, 219, 1);
   final Color textGray = Color.fromRGBO(66, 66, 66, 1);
   final Color darkGray = Color.fromRGBO(44, 44, 44, 1);
+  final Color lighterPurple = Color.fromRGBO(235, 222, 255, 1);
 
   final ScrollController _scrollController = ScrollController();
   int _currentPage = 1;
@@ -551,7 +552,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
               child: Center(
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: lightPurple,
                     borderRadius: BorderRadius.circular(30),
                     boxShadow: [
                       BoxShadow(
@@ -561,24 +562,51 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                       ),
                     ],
                   ),
+                  padding: EdgeInsets.symmetric(vertical: 2),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      IconButton(
-                        icon: Icon(Icons.list,
-                            color: _isCalendarView ? darkGray : darkPurple),
-                        onPressed: () => _toggleView(false),
-                      ),
+                      SizedBox(width: 6),
                       Container(
-                        width: 1,
-                        height: 24,
-                        color: Colors.grey[300],
+                        decoration: !_isCalendarView
+                            ? BoxDecoration(
+                                color: lighterPurple,
+                                borderRadius: BorderRadius.circular(18),
+                              )
+                            : null,
+                        height: !_isCalendarView ? 36 : null,
+                        padding: !_isCalendarView
+                            ? EdgeInsets.symmetric(horizontal: 0)
+                            : null,
+                        child: IconButton(
+                          icon: Icon(Icons.list, color: textGray),
+                          onPressed: () => _toggleView(false),
+                          iconSize: 24,
+                          padding: EdgeInsets.zero,
+                          constraints: BoxConstraints(),
+                        ),
                       ),
-                      IconButton(
-                        icon: Icon(Icons.calendar_month,
-                            color: _isCalendarView ? darkPurple : darkGray),
-                        onPressed: () => _toggleView(true),
+                      SizedBox(width: 20),
+                      Container(
+                        decoration: _isCalendarView
+                            ? BoxDecoration(
+                                color: lighterPurple,
+                                borderRadius: BorderRadius.circular(18),
+                              )
+                            : null,
+                        height: _isCalendarView ? 36 : null,
+                        padding: _isCalendarView
+                            ? EdgeInsets.symmetric(horizontal: 0)
+                            : null,
+                        child: IconButton(
+                          icon: Icon(Icons.calendar_month, color: textGray),
+                          onPressed: () => _toggleView(true),
+                          iconSize: 24,
+                          padding: EdgeInsets.zero,
+                          constraints: BoxConstraints(),
+                        ),
                       ),
+                      SizedBox(width: 6),
                     ],
                   ),
                 ),
@@ -683,47 +711,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                 ),
               ),
             ],
-          ),
-          // The pill stays absolutely positioned above the nav bar
-          Positioned(
-            bottom: 16,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(30),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 8,
-                      offset: Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: Icon(Icons.list,
-                          color: _isCalendarView ? darkGray : darkPurple),
-                      onPressed: () => _toggleView(false),
-                    ),
-                    Container(
-                      width: 1,
-                      height: 24,
-                      color: Colors.grey[300],
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.calendar_month,
-                          color: _isCalendarView ? darkPurple : darkGray),
-                      onPressed: () => _toggleView(true),
-                    ),
-                  ],
-                ),
-              ),
-            ),
           ),
           if (_isLoading)
             Container(
