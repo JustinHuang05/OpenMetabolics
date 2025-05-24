@@ -7,13 +7,15 @@ import '../models/session.dart';
 import 'session_details_page.dart';
 import '../auth/auth_service.dart';
 import 'package:provider/provider.dart';
-import 'dart:io' show SocketException;
+import 'dart:io' show SocketException, InternetAddress;
 import 'package:amplify_flutter/amplify_flutter.dart' as amplify;
 import 'package:scrollable_clean_calendar/scrollable_clean_calendar.dart';
 import 'package:scrollable_clean_calendar/controllers/clean_calendar_controller.dart';
 import 'package:scrollable_clean_calendar/utils/enums.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'day_sessions_page.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart';
 
 class PastSessionsPage extends StatefulWidget {
   @override
@@ -89,6 +91,8 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     );
     _initializeHive();
     _loadViewPreference();
+    // Check network error state first
+    _checkNetworkErrorState();
     // Load cached data first, then check for updates in background
     _loadCachedSessionSummaries();
     // Remove the redundant fetch since _loadCachedSessionSummaries will handle it
@@ -139,23 +143,68 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     }
   }
 
+  Future<void> _checkNetworkErrorState() async {
+    try {
+      final preferencesBox = Hive.box('user_preferences');
+      final hasNetworkError =
+          preferencesBox.get('has_network_error', defaultValue: false);
+      if (hasNetworkError) {
+        setState(() {
+          _isNetworkError = true;
+          _isLoading = false;
+          _cachedSessionSummaries = [];
+          _sessions = [];
+          _hasLoadedListViewData = true;
+        });
+      }
+    } catch (e) {
+      print('Error checking network error state: $e');
+    }
+  }
+
+  Future<void> _saveNetworkErrorState(bool hasError) async {
+    try {
+      final preferencesBox = Hive.box('user_preferences');
+      await preferencesBox.put('has_network_error', hasError);
+    } catch (e) {
+      print('Error saving network error state: $e');
+    }
+  }
+
   Future<void> _loadCachedSessionSummaries() async {
     try {
       final box = Hive.box('session_summaries');
       final cached = box.get('all_sessions', defaultValue: []);
       final lastUpdateTimestamp = box.get('last_update_timestamp') as String?;
+      final preferencesBox = Hive.box('user_preferences');
+      final hasSuccessfullyLoadedCache = preferencesBox
+          .get('has_successfully_loaded_cache', defaultValue: false);
 
       // If this is the first time accessing the page (no view preference saved)
-      final preferencesBox = Hive.box('user_preferences');
       final hasAccessedBefore =
           preferencesBox.get('has_accessed_past_sessions', defaultValue: false);
 
       if (!hasAccessedBefore) {
         // First time accessing the page - fetch all data
         print('First time accessing past sessions, fetching all data');
-        await fetchAllSessionSummaries();
-        // Mark that we've accessed the page
-        await preferencesBox.put('has_accessed_past_sessions', true);
+        try {
+          await fetchAllSessionSummaries();
+          // Mark that we've accessed the page
+          await preferencesBox.put('has_accessed_past_sessions', true);
+        } catch (e) {
+          if (e is SocketException ||
+              e.toString().contains('Failed host lookup')) {
+            if (mounted) {
+              setState(() {
+                _isNetworkError = true;
+                _isLoading = false;
+                _cachedSessionSummaries = [];
+                _sessions = [];
+                _hasLoadedListViewData = true;
+              });
+            }
+          }
+        }
         return;
       }
 
@@ -182,6 +231,8 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
             _hasLoadedListViewData = true;
           });
           _updateCalendarController();
+          // Mark that we've successfully loaded cache
+          await preferencesBox.put('has_successfully_loaded_cache', true);
         }
 
         // Check for updates in the background
@@ -198,11 +249,28 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
             _hasLoadedListViewData = true;
           });
           _updateCalendarController();
+          // Mark that we've successfully loaded cache
+          await preferencesBox.put('has_successfully_loaded_cache', true);
         }
       } else {
         // No cache at all - need to fetch from network
         print('No cached data found, fetching fresh data');
-        await fetchAllSessionSummaries();
+        try {
+          await fetchAllSessionSummaries();
+        } catch (e) {
+          if (e is SocketException ||
+              e.toString().contains('Failed host lookup')) {
+            if (mounted) {
+              setState(() {
+                _isNetworkError = true;
+                _isLoading = false;
+                _cachedSessionSummaries = [];
+                _sessions = [];
+                _hasLoadedListViewData = true;
+              });
+            }
+          }
+        }
       }
     } catch (e) {
       print('Error loading cached data: $e');
@@ -211,10 +279,28 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           setState(() {
             _isNetworkError = true;
             _isLoading = false;
+            _cachedSessionSummaries = [];
+            _sessions = [];
+            _hasLoadedListViewData = true;
           });
         }
       } else {
-        await fetchAllSessionSummaries();
+        try {
+          await fetchAllSessionSummaries();
+        } catch (e) {
+          if (e is SocketException ||
+              e.toString().contains('Failed host lookup')) {
+            if (mounted) {
+              setState(() {
+                _isNetworkError = true;
+                _isLoading = false;
+                _cachedSessionSummaries = [];
+                _sessions = [];
+                _hasLoadedListViewData = true;
+              });
+            }
+          }
+        }
       }
     }
   }
@@ -318,6 +404,9 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
             _hasLoadedListViewData = true;
           });
           _updateCalendarController();
+          // Mark that we've successfully loaded cache
+          final preferencesBox = Hive.box('user_preferences');
+          await preferencesBox.put('has_successfully_loaded_cache', true);
         }
       } else {
         print(
@@ -326,6 +415,9 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           setState(() {
             _isLoading = false;
             _isNetworkError = true;
+            _cachedSessionSummaries = [];
+            _sessions = [];
+            _hasLoadedListViewData = true;
           });
         }
       }
@@ -335,8 +427,13 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         setState(() {
           _isLoading = false;
           _isNetworkError = true;
+          _cachedSessionSummaries = [];
+          _sessions = [];
+          _hasLoadedListViewData = true;
         });
       }
+      // Re-throw the error to be caught by the caller
+      rethrow;
     }
   }
 
@@ -704,6 +801,26 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
       );
     }
 
+    if (_isLoading) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: lightPurple),
+            SizedBox(height: 16),
+            Text(
+              'Loading sessions...',
+              style: TextStyle(
+                color: darkPurple,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     // Check if we have any sessions
     final box = Hive.box('session_summaries');
     final lastUpdateTimestamp = box.get('last_update_timestamp') as String?;
@@ -837,29 +954,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
               ),
             ],
           ),
-          if (_isLoading)
-            Container(
-              color: Colors.white.withOpacity(0.8),
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(
-                      color: lightPurple,
-                    ),
-                    SizedBox(height: 16),
-                    Text(
-                      'Loading sessions...',
-                      style: TextStyle(
-                        color: darkPurple,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
         ],
       ),
     );
@@ -867,7 +961,23 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
 
   Widget _buildListView(Color lightPurple, Color textGray) {
     if (_isLoading) {
-      return Center(child: CircularProgressIndicator(color: lightPurple));
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: lightPurple),
+            SizedBox(height: 16),
+            Text(
+              'Loading sessions...',
+              style: TextStyle(
+                color: darkPurple,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
     } else if (_isNetworkError) {
       return Center(
         child: Padding(
