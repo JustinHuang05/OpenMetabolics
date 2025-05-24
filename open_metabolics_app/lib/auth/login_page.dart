@@ -212,6 +212,16 @@ class _LoginPageState extends State<LoginPage> {
             passError = true;
             passErrorText = 'Incorrect password';
           });
+        } else if (e.toString().contains('SocketException') ||
+            e.toString().contains('Failed host lookup')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  'No internet connection. Please check your network and try again.'),
+              duration: Duration(seconds: 3),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
       }
     } else {

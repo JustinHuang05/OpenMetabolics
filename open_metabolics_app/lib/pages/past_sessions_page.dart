@@ -143,8 +143,23 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     try {
       final box = Hive.box('session_summaries');
       final cached = box.get('all_sessions', defaultValue: []);
+      final lastUpdateTimestamp = box.get('last_update_timestamp') as String?;
 
-      if (cached is List && cached.isNotEmpty) {
+      // If this is the first time accessing the page (no view preference saved)
+      final preferencesBox = Hive.box('user_preferences');
+      final hasAccessedBefore =
+          preferencesBox.get('has_accessed_past_sessions', defaultValue: false);
+
+      if (!hasAccessedBefore) {
+        // First time accessing the page - fetch all data
+        print('First time accessing past sessions, fetching all data');
+        await fetchAllSessionSummaries();
+        // Mark that we've accessed the page
+        await preferencesBox.put('has_accessed_past_sessions', true);
+        return;
+      }
+
+      if (cached is List) {
         print('Loading cached data with ${cached.length} sessions');
         // Properly cast the cached data to the correct type
         final List<Map<String, dynamic>> typedCachedData = cached.map((item) {
@@ -154,47 +169,53 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           return <String, dynamic>{};
         }).toList();
 
-        setState(() {
-          _cachedSessionSummaries = typedCachedData;
-          _isLoading = false;
-          // Update sessions list if in list view
-          if (!_isCalendarView) {
+        if (mounted) {
+          setState(() {
+            _cachedSessionSummaries = typedCachedData;
+            _isLoading = false;
+            _isNetworkError = false;
+            // Always update the sessions list regardless of view
             _sessions = typedCachedData
                 .map((item) => SessionSummary.fromJson(item))
                 .whereType<SessionSummary>()
                 .toList();
             _hasLoadedListViewData = true;
-          }
-        });
-        _updateCalendarController();
-
-        // Check for updates in the background
-        _checkForUpdates();
-      } else {
-        print('No cached data found, fetching fresh data');
-        await fetchAllSessionSummaries();
-        // After fetching, update both views
-        final updatedCache = box.get('all_sessions', defaultValue: []) as List;
-        if (updatedCache.isNotEmpty) {
-          setState(() {
-            _cachedSessionSummaries =
-                List<Map<String, dynamic>>.from(updatedCache);
-            _isLoading = false;
-            // If we're in list view, update the sessions list too
-            if (!_isCalendarView) {
-              _sessions = _cachedSessionSummaries
-                  .map((item) => SessionSummary.fromJson(item))
-                  .whereType<SessionSummary>()
-                  .toList();
-              _hasLoadedListViewData = true;
-            }
           });
           _updateCalendarController();
         }
+
+        // Check for updates in the background
+        _checkForUpdates();
+      } else if (lastUpdateTimestamp != null) {
+        // We have a timestamp but no data - this means user has recorded before
+        // but currently has no sessions
+        if (mounted) {
+          setState(() {
+            _cachedSessionSummaries = [];
+            _isLoading = false;
+            _isNetworkError = false;
+            _sessions = [];
+            _hasLoadedListViewData = true;
+          });
+          _updateCalendarController();
+        }
+      } else {
+        // No cache at all - need to fetch from network
+        print('No cached data found, fetching fresh data');
+        await fetchAllSessionSummaries();
       }
     } catch (e) {
       print('Error loading cached data: $e');
-      await fetchAllSessionSummaries();
+      if (e is SocketException || e.toString().contains('Failed host lookup')) {
+        if (mounted) {
+          setState(() {
+            _isNetworkError = true;
+            _isLoading = false;
+          });
+        }
+      } else {
+        await fetchAllSessionSummaries();
+      }
     }
   }
 
@@ -261,6 +282,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   Future<void> fetchAllSessionSummaries() async {
     setState(() {
       _isLoading = true;
+      _isNetworkError = false;
     });
 
     try {
@@ -287,6 +309,13 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           setState(() {
             _cachedSessionSummaries = List<Map<String, dynamic>>.from(data);
             _isLoading = false;
+            _isNetworkError = false;
+            // Replace the sessions list with fresh data
+            _sessions = _cachedSessionSummaries
+                .map((item) => SessionSummary.fromJson(item))
+                .whereType<SessionSummary>()
+                .toList();
+            _hasLoadedListViewData = true;
           });
           _updateCalendarController();
         }
@@ -296,6 +325,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         if (mounted) {
           setState(() {
             _isLoading = false;
+            _isNetworkError = true;
           });
         }
       }
@@ -304,6 +334,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
       if (mounted) {
         setState(() {
           _isLoading = false;
+          _isNetworkError = true;
         });
       }
     }
@@ -525,9 +556,15 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     });
     _saveViewPreference(isCalendar);
 
-    // Load list view data if we haven't already and we're switching to list view
-    if (!isCalendar && !_hasLoadedListViewData) {
-      _fetchPastSessions(page: 1, isRefresh: true);
+    // If switching to list view, populate it with cached data
+    if (!isCalendar) {
+      setState(() {
+        _sessions = _cachedSessionSummaries
+            .map((item) => SessionSummary.fromJson(item))
+            .whereType<SessionSummary>()
+            .toList();
+        _hasLoadedListViewData = true;
+      });
     }
   }
 
@@ -621,6 +658,94 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   Widget _buildCalendarView() {
     // Process the sessions for the calendar
     _processSessionsForCalendar();
+
+    if (_isNetworkError) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.wifi_off_rounded,
+                color: Colors.grey[600],
+                size: 64,
+              ),
+              SizedBox(height: 16),
+              Text(
+                'No Internet Connection',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[700],
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Please check your connection and try again',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.grey[600],
+                ),
+              ),
+              SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () => fetchAllSessionSummaries(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: lightPurple,
+                  foregroundColor: textGray,
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Check if we have any sessions
+    final box = Hive.box('session_summaries');
+    final lastUpdateTimestamp = box.get('last_update_timestamp') as String?;
+    final cachedData = box.get('all_sessions', defaultValue: []) as List;
+
+    if (cachedData.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              lastUpdateTimestamp != null
+                  ? Icons.event_busy
+                  : Icons.sensors_off,
+              size: 64,
+              color: Colors.grey[600],
+            ),
+            SizedBox(height: 16),
+            Text(
+              lastUpdateTimestamp != null
+                  ? 'No Sessions Recorded'
+                  : 'Start Recording',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[600],
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              lastUpdateTimestamp != null
+                  ? 'You haven\'t recorded any sessions yet'
+                  : 'Begin tracking your energy expenditure',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Container(
       color: Colors.transparent,
@@ -743,7 +868,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   Widget _buildListView(Color lightPurple, Color textGray) {
     if (_isLoading) {
       return Center(child: CircularProgressIndicator(color: lightPurple));
-    } else if (_isNetworkError && _sessions.isEmpty) {
+    } else if (_isNetworkError) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
@@ -786,49 +911,57 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           ),
         ),
       );
-    } else if (_errorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.error_outline,
-                color: Colors.red,
-                size: 48,
-              ),
-              SizedBox(height: 16),
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.red),
-              ),
-              SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => _fetchPastSessions(page: 1, isRefresh: true),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: lightPurple,
-                  foregroundColor: textGray,
-                ),
-                child: Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      );
     } else if (_sessions.isEmpty && !_isLoading && !_isFetchingMore) {
+      // Check if we have a last update timestamp to determine if user has recorded before
+      final box = Hive.box('session_summaries');
+      final lastUpdateTimestamp = box.get('last_update_timestamp') as String?;
+      final cachedData = box.get('all_sessions', defaultValue: []) as List;
+
+      // If we have cached data but _sessions is empty, something went wrong with the conversion
+      if (cachedData.isNotEmpty) {
+        print(
+            'Found ${cachedData.length} cached sessions but _sessions is empty, attempting to fix');
+        setState(() {
+          _sessions = cachedData
+              .map((item) =>
+                  SessionSummary.fromJson(Map<String, dynamic>.from(item)))
+              .whereType<SessionSummary>()
+              .toList();
+          _hasLoadedListViewData = true;
+        });
+        return _buildListView(lightPurple, textGray);
+      }
+
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(color: lightPurple),
+            Icon(
+              lastUpdateTimestamp != null
+                  ? Icons.event_busy
+                  : Icons.sensors_off,
+              size: 64,
+              color: Colors.grey[600],
+            ),
             SizedBox(height: 16),
             Text(
-              'Loading sessions...',
+              lastUpdateTimestamp != null
+                  ? 'No Sessions Recorded'
+                  : 'Start Recording',
               style: TextStyle(
-                color: textGray,
-                fontSize: 16,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[600],
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              lastUpdateTimestamp != null
+                  ? 'You haven\'t recorded any sessions yet'
+                  : 'Begin tracking your energy expenditure',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey[600],
               ),
             ),
           ],
@@ -841,9 +974,10 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         child: ListView.builder(
           controller: _scrollController,
           padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 80.0),
-          itemCount: _sessions.length + (_hasNextPage ? 1 : 0),
+          itemCount:
+              _sessions.length + (_hasNextPage && _isFetchingMore ? 1 : 0),
           itemBuilder: (context, index) {
-            if (index == _sessions.length && _hasNextPage) {
+            if (index == _sessions.length && _hasNextPage && _isFetchingMore) {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16.0),
                 child: Center(

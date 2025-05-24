@@ -79,29 +79,56 @@ class _VerificationPageState extends State<VerificationPage> {
                         _isLoading = true;
                       });
 
-                      final success = await authService.verifyEmail(
-                        widget.email,
-                        _verificationController.text,
-                      );
-
-                      setState(() {
-                        _isLoading = false;
-                      });
-
-                      if (success) {
-                        Navigator.of(context).pushAndRemoveUntil(
-                          MaterialPageRoute(
-                            builder: (context) => SensorScreen(),
-                          ),
-                          (Route<dynamic> route) => false,
+                      try {
+                        final success = await authService.verifyEmail(
+                          widget.email,
+                          _verificationController.text,
                         );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content:
-                                Text('Verification failed. Please try again.'),
-                          ),
-                        );
+
+                        setState(() {
+                          _isLoading = false;
+                        });
+
+                        if (success) {
+                          Navigator.of(context).pushAndRemoveUntil(
+                            MaterialPageRoute(
+                              builder: (context) => SensorScreen(),
+                            ),
+                            (Route<dynamic> route) => false,
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                  'Verification failed. Please try again.'),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setState(() {
+                          _isLoading = false;
+                        });
+
+                        if (e.toString().contains('SocketException') ||
+                            e.toString().contains('Failed host lookup')) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                  'No internet connection. Please check your network and try again.'),
+                              duration: Duration(seconds: 3),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                  'Verification failed. Please try again.'),
+                              duration: Duration(seconds: 3),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
                       }
                     },
               style: ElevatedButton.styleFrom(

@@ -9,6 +9,7 @@ import '../config/api_config.dart';
 import '../auth/auth_service.dart';
 import 'package:provider/provider.dart';
 import '../widgets/feedback_bottom_drawer.dart';
+import '../widgets/network_error_widget.dart';
 
 class SessionDetailsPage extends StatefulWidget {
   final String sessionId;
@@ -81,6 +82,11 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   }
 
   Future<void> _fetchSessionDetails() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final userEmail = await authService.getCurrentUserEmail();
@@ -164,35 +170,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
           title: Text('Session Details', style: TextStyle(color: textGray)),
           backgroundColor: lightPurple,
         ),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.error_outline,
-                  color: Colors.red,
-                  size: 48,
-                ),
-                SizedBox(height: 16),
-                Text(
-                  _errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.red),
-                ),
-                SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: _fetchSessionDetails,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: lightPurple,
-                    foregroundColor: textGray,
-                  ),
-                  child: Text('Retry'),
-                ),
-              ],
-            ),
-          ),
+        body: NetworkErrorWidget(
+          onRetry: _fetchSessionDetails,
         ),
       );
     }
