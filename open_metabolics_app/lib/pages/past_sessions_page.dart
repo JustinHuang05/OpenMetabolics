@@ -145,7 +145,21 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
       final cached = box.get('all_sessions', defaultValue: []);
       final lastUpdateTimestamp = box.get('last_update_timestamp') as String?;
 
-      if (cached is List && cached.isNotEmpty) {
+      // If this is the first time accessing the page (no view preference saved)
+      final preferencesBox = Hive.box('user_preferences');
+      final hasAccessedBefore =
+          preferencesBox.get('has_accessed_past_sessions', defaultValue: false);
+
+      if (!hasAccessedBefore) {
+        // First time accessing the page - fetch all data
+        print('First time accessing past sessions, fetching all data');
+        await fetchAllSessionSummaries();
+        // Mark that we've accessed the page
+        await preferencesBox.put('has_accessed_past_sessions', true);
+        return;
+      }
+
+      if (cached is List) {
         print('Loading cached data with ${cached.length} sessions');
         // Properly cast the cached data to the correct type
         final List<Map<String, dynamic>> typedCachedData = cached.map((item) {
@@ -155,36 +169,36 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           return <String, dynamic>{};
         }).toList();
 
-        setState(() {
-          _cachedSessionSummaries = typedCachedData;
-          _isLoading = false;
-          _isNetworkError = false;
-          // Update sessions list if in list view
-          if (!_isCalendarView) {
+        if (mounted) {
+          setState(() {
+            _cachedSessionSummaries = typedCachedData;
+            _isLoading = false;
+            _isNetworkError = false;
+            // Always update the sessions list regardless of view
             _sessions = typedCachedData
                 .map((item) => SessionSummary.fromJson(item))
                 .whereType<SessionSummary>()
                 .toList();
             _hasLoadedListViewData = true;
-          }
-        });
-        _updateCalendarController();
+          });
+          _updateCalendarController();
+        }
 
         // Check for updates in the background
         _checkForUpdates();
       } else if (lastUpdateTimestamp != null) {
         // We have a timestamp but no data - this means user has recorded before
         // but currently has no sessions
-        setState(() {
-          _cachedSessionSummaries = [];
-          _isLoading = false;
-          _isNetworkError = false;
-          if (!_isCalendarView) {
+        if (mounted) {
+          setState(() {
+            _cachedSessionSummaries = [];
+            _isLoading = false;
+            _isNetworkError = false;
             _sessions = [];
             _hasLoadedListViewData = true;
-          }
-        });
-        _updateCalendarController();
+          });
+          _updateCalendarController();
+        }
       } else {
         // No cache at all - need to fetch from network
         print('No cached data found, fetching fresh data');
@@ -193,10 +207,12 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
     } catch (e) {
       print('Error loading cached data: $e');
       if (e is SocketException || e.toString().contains('Failed host lookup')) {
-        setState(() {
-          _isNetworkError = true;
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isNetworkError = true;
+            _isLoading = false;
+          });
+        }
       } else {
         await fetchAllSessionSummaries();
       }
@@ -294,7 +310,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
             _cachedSessionSummaries = List<Map<String, dynamic>>.from(data);
             _isLoading = false;
             _isNetworkError = false;
-            // Always update the sessions list regardless of current view
+            // Replace the sessions list with fresh data
             _sessions = _cachedSessionSummaries
                 .map((item) => SessionSummary.fromJson(item))
                 .whereType<SessionSummary>()
