@@ -229,47 +229,74 @@ class _SignUpPageState extends State<SignUpPage> {
 
                               print('Starting signup process...'); // Debug log
 
-                              final success = await authService.signUp(
-                                emailCont.text,
-                                passCont.text,
-                                fnameCont.text,
-                                lnameCont.text,
-                              );
-
-                              // Clear the "Signing up..." message
-                              ScaffoldMessenger.of(context).clearSnackBars();
-
-                              print('Signup result: $success'); // Debug log
-
-                              if (success) {
-                                // Show success message and navigate to verification
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                        'Signup successful! Please check your email for verification code.'),
-                                    duration: Duration(seconds: 3),
-                                  ),
+                              try {
+                                final success = await authService.signUp(
+                                  emailCont.text,
+                                  passCont.text,
+                                  fnameCont.text,
+                                  lnameCont.text,
                                 );
 
-                                print(
-                                    'Navigating to verification page...'); // Debug log
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => VerificationPage(
-                                      email: emailCont.text.toLowerCase(),
-                                      password: passCont.text,
+                                // Clear the "Signing up..." message
+                                ScaffoldMessenger.of(context).clearSnackBars();
+
+                                print('Signup result: $success'); // Debug log
+
+                                if (success) {
+                                  // Show success message and navigate to verification
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                          'Signup successful! Please check your email for verification code.'),
+                                      duration: Duration(seconds: 3),
                                     ),
-                                  ),
-                                );
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                        'Sign up failed. Please try again.'),
-                                    duration: Duration(seconds: 3),
-                                  ),
-                                );
+                                  );
+
+                                  print(
+                                      'Navigating to verification page...'); // Debug log
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => VerificationPage(
+                                        email: emailCont.text.toLowerCase(),
+                                        password: passCont.text,
+                                      ),
+                                    ),
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                          'Sign up failed. Please try again.'),
+                                      duration: Duration(seconds: 3),
+                                    ),
+                                  );
+                                }
+                              } catch (e) {
+                                // Clear the "Signing up..." message
+                                ScaffoldMessenger.of(context).clearSnackBars();
+
+                                if (e.toString().contains('SocketException') ||
+                                    e
+                                        .toString()
+                                        .contains('Failed host lookup')) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                          'No internet connection. Please check your network and try again.'),
+                                      duration: Duration(seconds: 3),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                          'Sign up failed. Please try again.'),
+                                      duration: Duration(seconds: 3),
+                                    ),
+                                  );
+                                }
                               }
                             }
                           },
