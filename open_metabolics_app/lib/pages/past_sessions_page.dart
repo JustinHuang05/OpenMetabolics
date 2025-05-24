@@ -179,18 +179,21 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
       final preferencesBox = Hive.box('user_preferences');
       final hasSuccessfullyLoadedCache = preferencesBox
           .get('has_successfully_loaded_cache', defaultValue: false);
+      final hasInitializedCache =
+          preferencesBox.get('has_initialized_cache', defaultValue: false);
 
       // If this is the first time accessing the page (no view preference saved)
       final hasAccessedBefore =
           preferencesBox.get('has_accessed_past_sessions', defaultValue: false);
 
-      if (!hasAccessedBefore) {
-        // First time accessing the page - fetch all data
-        print('First time accessing past sessions, fetching all data');
+      // If we haven't properly initialized the cache yet, we need to fetch all data
+      if (!hasInitializedCache) {
+        print('Cache not yet initialized, fetching all data');
         try {
           await fetchAllSessionSummaries();
-          // Mark that we've accessed the page
+          // Mark that we've accessed the page and initialized cache
           await preferencesBox.put('has_accessed_past_sessions', true);
+          await preferencesBox.put('has_initialized_cache', true);
         } catch (e) {
           if (e is SocketException ||
               e.toString().contains('Failed host lookup')) {
@@ -257,6 +260,8 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         print('No cached data found, fetching fresh data');
         try {
           await fetchAllSessionSummaries();
+          // Mark that we've initialized the cache
+          await preferencesBox.put('has_initialized_cache', true);
         } catch (e) {
           if (e is SocketException ||
               e.toString().contains('Failed host lookup')) {
@@ -287,6 +292,9 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
       } else {
         try {
           await fetchAllSessionSummaries();
+          // Mark that we've initialized the cache
+          final preferencesBox = Hive.box('user_preferences');
+          await preferencesBox.put('has_initialized_cache', true);
         } catch (e) {
           if (e is SocketException ||
               e.toString().contains('Failed host lookup')) {
@@ -387,13 +395,30 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
 
         // Update cache
         final box = Hive.box('session_summaries');
-        await box.put('all_sessions', data);
+        final existingData = box.get('all_sessions', defaultValue: []) as List;
+
+        // Merge new data with existing cache
+        final updatedData = List<Map<String, dynamic>>.from(existingData);
+        for (var newItem in data) {
+          final typedNewItem = Map<String, dynamic>.from(newItem);
+          // Remove any existing entry with the same sessionId
+          updatedData.removeWhere(
+              (item) => item['sessionId'] == typedNewItem['sessionId']);
+          // Add the new item
+          updatedData.add(typedNewItem);
+        }
+
+        // Sort by timestamp (most recent first)
+        updatedData.sort((a, b) => DateTime.parse(b['timestamp'])
+            .compareTo(DateTime.parse(a['timestamp'])));
+
+        await box.put('all_sessions', updatedData);
         await box.put(
             'last_update_timestamp', DateTime.now().toUtc().toIso8601String());
 
         if (mounted) {
           setState(() {
-            _cachedSessionSummaries = List<Map<String, dynamic>>.from(data);
+            _cachedSessionSummaries = updatedData;
             _isLoading = false;
             _isNetworkError = false;
             // Replace the sessions list with fresh data
@@ -407,6 +432,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           // Mark that we've successfully loaded cache
           final preferencesBox = Hive.box('user_preferences');
           await preferencesBox.put('has_successfully_loaded_cache', true);
+          await preferencesBox.put('has_initialized_cache', true);
         }
       } else {
         print(
@@ -787,7 +813,50 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
               ),
               SizedBox(height: 24),
               ElevatedButton(
-                onPressed: () => fetchAllSessionSummaries(),
+                onPressed: () async {
+                  try {
+                    // Check if cache was properly initialized
+                    final preferencesBox = Hive.box('user_preferences');
+                    final hasInitializedCache = preferencesBox
+                        .get('has_initialized_cache', defaultValue: false);
+
+                    if (!hasInitializedCache) {
+                      // If cache wasn't properly initialized, fetch all data
+                      await fetchAllSessionSummaries();
+                    } else {
+                      // If cache was initialized, try to fetch updates
+                      await _checkForUpdates();
+                    }
+                  } catch (e) {
+                    // If fetch fails, check if we have any cached data
+                    final box = Hive.box('session_summaries');
+                    final preferencesBox = Hive.box('user_preferences');
+                    final hasInitializedCache = preferencesBox
+                        .get('has_initialized_cache', defaultValue: false);
+                    final cachedData =
+                        box.get('all_sessions', defaultValue: []) as List;
+
+                    if (cachedData.isNotEmpty && hasInitializedCache) {
+                      // Only show cached data if cache was properly initialized
+                      setState(() {
+                        _isNetworkError = false;
+                        _isLoading = false;
+                        _cachedSessionSummaries = cachedData.map((item) {
+                          if (item is Map) {
+                            return Map<String, dynamic>.from(item);
+                          }
+                          return <String, dynamic>{};
+                        }).toList();
+                        _sessions = _cachedSessionSummaries
+                            .map((item) => SessionSummary.fromJson(item))
+                            .whereType<SessionSummary>()
+                            .toList();
+                        _hasLoadedListViewData = true;
+                      });
+                      _updateCalendarController();
+                    }
+                  }
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: lightPurple,
                   foregroundColor: textGray,
@@ -1009,7 +1078,49 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
               ),
               SizedBox(height: 24),
               ElevatedButton(
-                onPressed: () => _fetchPastSessions(page: 1, isRefresh: true),
+                onPressed: () async {
+                  try {
+                    // Check if cache was properly initialized
+                    final preferencesBox = Hive.box('user_preferences');
+                    final hasInitializedCache = preferencesBox
+                        .get('has_initialized_cache', defaultValue: false);
+
+                    if (!hasInitializedCache) {
+                      // If cache wasn't properly initialized, fetch all data
+                      await fetchAllSessionSummaries();
+                    } else {
+                      // If cache was initialized, try to fetch updates
+                      await _fetchPastSessions(page: 1, isRefresh: true);
+                    }
+                  } catch (e) {
+                    // If fetch fails, check if we have any cached data
+                    final box = Hive.box('session_summaries');
+                    final preferencesBox = Hive.box('user_preferences');
+                    final hasInitializedCache = preferencesBox
+                        .get('has_initialized_cache', defaultValue: false);
+                    final cachedData =
+                        box.get('all_sessions', defaultValue: []) as List;
+
+                    if (cachedData.isNotEmpty && hasInitializedCache) {
+                      // Only show cached data if cache was properly initialized
+                      setState(() {
+                        _isNetworkError = false;
+                        _isLoading = false;
+                        _cachedSessionSummaries = cachedData.map((item) {
+                          if (item is Map) {
+                            return Map<String, dynamic>.from(item);
+                          }
+                          return <String, dynamic>{};
+                        }).toList();
+                        _sessions = _cachedSessionSummaries
+                            .map((item) => SessionSummary.fromJson(item))
+                            .whereType<SessionSummary>()
+                            .toList();
+                        _hasLoadedListViewData = true;
+                      });
+                    }
+                  }
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: lightPurple,
                   foregroundColor: textGray,
