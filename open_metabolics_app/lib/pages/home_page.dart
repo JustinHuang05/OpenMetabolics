@@ -334,6 +334,80 @@ class EmptyStateWidget extends StatelessWidget {
   }
 }
 
+// Add this widget class before the SensorScreen class
+class NetworkErrorWidget extends StatelessWidget {
+  final VoidCallback onRetry;
+
+  const NetworkErrorWidget({
+    Key? key,
+    required this.onRetry,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final Color lightPurple = Color.fromRGBO(216, 194, 251, 1);
+    final Color textGray = Color.fromRGBO(66, 66, 66, 1);
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.wifi_off_rounded,
+                size: 64,
+                color: Colors.grey[600],
+              ),
+            ),
+            SizedBox(height: 24),
+            Text(
+              'Network Connection Required',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: textGray,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Since you force closed the app, we need to verify your account information. Please check your connection and try again.',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: onRetry,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: lightPurple,
+                foregroundColor: textGray,
+                padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Text(
+                'Retry',
+                style: TextStyle(fontSize: 16),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class SensorScreen extends StatefulWidget {
   @override
   _SensorScreenState createState() => _SensorScreenState();
@@ -1853,12 +1927,18 @@ class _SensorScreenState extends State<SensorScreen> {
       ),
       body: profileProvider.isLoading
           ? const Center(child: CircularProgressIndicator())
-          : profileProvider.errorMessage != null
-              ? Center(child: Text(profileProvider.errorMessage!))
-              : _selectedIndex == 0
-                  ? _buildHomeTab(
-                      context, lightPurple, textGray, profileProvider)
-                  : _pages[_selectedIndex],
+          : profileProvider.isNetworkError
+              ? NetworkErrorWidget(
+                  onRetry: () {
+                    profileProvider.fetchUserProfile();
+                  },
+                )
+              : profileProvider.errorMessage != null
+                  ? Center(child: Text(profileProvider.errorMessage!))
+                  : _selectedIndex == 0
+                      ? _buildHomeTab(
+                          context, lightPurple, textGray, profileProvider)
+                      : _pages[_selectedIndex],
       floatingActionButton: _selectedIndex == 0
           ? Container(
               height: 95,
