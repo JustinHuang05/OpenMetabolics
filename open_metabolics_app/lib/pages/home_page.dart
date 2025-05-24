@@ -563,6 +563,16 @@ class _SensorScreenState extends State<SensorScreen> {
               continue;
             }
 
+            // Set processing state before resuming
+            if (mounted) {
+              setState(() {
+                sessionStatusToResume.isProcessing = true;
+                sessionStatusToResume.isProcessingEnergyExpenditure = true;
+                sessionStatusToResume.uploadProgress =
+                    1.0; // Keep at 100% since upload is done
+              });
+            }
+
             // Resume polling for results if previously waiting for network
             final results = await _processEnergyExpenditure(
                 sessionStatusToResume.sessionId, userEmail);
@@ -593,7 +603,9 @@ class _SensorScreenState extends State<SensorScreen> {
                 _activeRecorders.remove(sessionStatusToResume.sessionId);
               });
             }
-          } else if (!sessionStatusToResume.isComplete) {
+          } else if (!sessionStatusToResume.isComplete &&
+              !sessionStatusToResume.isProcessingEnergyExpenditure) {
+            // Only resume upload if we're not in the processing phase
             print(
                 "Attempting/Resuming CSV upload for ${sessionStatusToResume.sessionId}.");
             _uploadCSVToServer(sessionStatusToResume);
@@ -1081,12 +1093,24 @@ class _SensorScreenState extends State<SensorScreen> {
       int batchSize = 200;
       int totalBatches = (dataRows.length / batchSize).ceil();
 
-      setState(() {
-        // Initial state for upload start
-        session.isProcessing = false; // Explicitly false for pure upload phase
-        session.uploadProgress = 0.0;
-        session.isProcessingEnergyExpenditure = false; // Not yet in this phase
-      });
+      // Don't reset progress when resuming - use the last uploaded batch index
+      if (session.lastUploadedBatchIndex == 0) {
+        setState(() {
+          session.isProcessing =
+              false; // Explicitly false for pure upload phase
+          session.uploadProgress = 0.0;
+          session.isProcessingEnergyExpenditure =
+              false; // Not yet in this phase
+        });
+      } else {
+        // If resuming, set progress to where we left off
+        setState(() {
+          session.isProcessing = false;
+          session.uploadProgress =
+              session.lastUploadedBatchIndex / totalBatches;
+          session.isProcessingEnergyExpenditure = false;
+        });
+      }
 
       for (int batchStartIndex = session.lastUploadedBatchIndex * batchSize;
           batchStartIndex < dataRows.length;
@@ -1198,15 +1222,8 @@ class _SensorScreenState extends State<SensorScreen> {
       }
       // Only here, for real results, mark as complete
       if (mounted) {
-        setState(() {
-          session.isComplete = true;
-          session.isProcessing = false;
-          session.isProcessingEnergyExpenditure = false;
-          session.results = results;
-          _activeRecorders.remove(session.sessionId);
-        });
-
-        // Update session summaries cache
+        // Cache the session data locally
+        print("🔄 Starting to cache session ${session.sessionId} data...");
         try {
           final box = Hive.box('session_summaries');
           final cachedSummaries =
@@ -1233,154 +1250,168 @@ class _SensorScreenState extends State<SensorScreen> {
           await box.put('all_sessions', updatedSummaries);
           await box.put('last_update_timestamp',
               DateTime.now().toUtc().toIso8601String());
+          print("✅ Successfully cached session ${session.sessionId} data");
         } catch (e) {
-          print('Error updating session summaries cache: $e');
+          print('❌ Error updating session summaries cache: $e');
+          // Continue with completion even if caching fails
         }
-      }
 
-      // --- Show dialog and survey logic remains same ---
-      if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: true,
-          builder: (context) => Dialog(
-            child: Container(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.9,
-                maxHeight: MediaQuery.of(context).size.height * 0.8,
-              ),
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16.0),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.check_circle, color: Colors.green),
-                          SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              'Processing Complete',
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(12.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+        // Mark as complete and show dialog
+        print("📝 Marking session ${session.sessionId} as complete...");
+        setState(() {
+          session.isComplete = true;
+          session.isProcessing = false;
+          session.isProcessingEnergyExpenditure = false;
+          session.results = results;
+          _activeRecorders.remove(session.sessionId);
+        });
+        print("✅ Session ${session.sessionId} marked as complete");
+
+        // --- Show dialog and survey logic remains same ---
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: true,
+            builder: (context) => Dialog(
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.9,
+                  maxHeight: MediaQuery.of(context).size.height * 0.8,
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16.0),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              'Session Statistics',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              'Measurements: ${(results['results'] ?? []).length}',
-                              style: Theme.of(context).textTheme.bodyLarge,
-                            ),
-                            Text(
-                              'Basal Rate: ${(results['basal_metabolic_rate'] ?? 0.0).toStringAsFixed(2)} W',
-                              style: Theme.of(context).textTheme.bodyLarge,
-                            ),
-                            Text(
-                              'Gait Cycles: ${(results['gait_cycles'] ?? 0)}',
-                              style: Theme.of(context).textTheme.bodyLarge,
+                            Icon(Icons.check_circle, color: Colors.green),
+                            SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                'Processing Complete',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ),
-                    SizedBox(height: 16),
-                    Text(
-                      'Energy Expenditure Results',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    SizedBox(height: 8),
-                    Flexible(
-                      child: Scrollbar(
-                        thickness: 8,
-                        radius: Radius.circular(4),
-                        thumbVisibility: true,
-                        child: ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: (results['results'] ?? []).length,
-                          itemBuilder: (context, index) {
-                            final result = (results['results'] ?? [])[index];
-                            print('Result: $result'); // Debug print
-                            final timestampStr = result['timestamp'] ?? '';
-                            DateTime? timestamp;
-                            try {
-                              timestamp = DateTime.tryParse(timestampStr);
-                            } catch (_) {
-                              timestamp = null;
-                            }
-                            // Use the correct field name from backend: 'EnergyExpenditure'
-                            final eeStr = result['EnergyExpenditure']?['N'];
-                            final eeValue = (eeStr is String)
-                                ? double.tryParse(eeStr) ?? 0.0
-                                : 0.0;
-                            final bmr = results['basal_metabolic_rate'] ?? 0.0;
-                            final isGaitCycle = eeValue > bmr;
+                      Card(
+                        child: Padding(
+                          padding: EdgeInsets.all(12.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Session Statistics',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Measurements: ${(results['results'] ?? []).length}',
+                                style: Theme.of(context).textTheme.bodyLarge,
+                              ),
+                              Text(
+                                'Basal Rate: ${(results['basal_metabolic_rate'] ?? 0.0).toStringAsFixed(2)} W',
+                                style: Theme.of(context).textTheme.bodyLarge,
+                              ),
+                              Text(
+                                'Gait Cycles: ${(results['gait_cycles'] ?? 0)}',
+                                style: Theme.of(context).textTheme.bodyLarge,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        'Energy Expenditure Results',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      SizedBox(height: 8),
+                      Flexible(
+                        child: Scrollbar(
+                          thickness: 8,
+                          radius: Radius.circular(4),
+                          thumbVisibility: true,
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: (results['results'] ?? []).length,
+                            itemBuilder: (context, index) {
+                              final result = (results['results'] ?? [])[index];
+                              print('Result: $result'); // Debug print
+                              final timestampStr = result['timestamp'] ?? '';
+                              DateTime? timestamp;
+                              try {
+                                timestamp = DateTime.tryParse(timestampStr);
+                              } catch (_) {
+                                timestamp = null;
+                              }
+                              // Use the correct field name from backend: 'EnergyExpenditure'
+                              final eeStr = result['EnergyExpenditure']?['N'];
+                              final eeValue = (eeStr is String)
+                                  ? double.tryParse(eeStr) ?? 0.0
+                                  : 0.0;
+                              final bmr =
+                                  results['basal_metabolic_rate'] ?? 0.0;
+                              final isGaitCycle = eeValue > bmr;
 
-                            return EnergyExpenditureCard(
-                              timestamp: timestamp ??
-                                  DateTime.fromMillisecondsSinceEpoch(0),
-                              energyExpenditure: eeValue.toDouble(),
-                              isGaitCycle: isGaitCycle,
-                            );
-                          },
+                              return EnergyExpenditureCard(
+                                timestamp: timestamp ??
+                                    DateTime.fromMillisecondsSinceEpoch(0),
+                                energyExpenditure: eeValue.toDouble(),
+                                isGaitCycle: isGaitCycle,
+                              );
+                            },
+                          ),
                         ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 16.0),
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          child: Text('Close'),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16.0),
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: Text('Close'),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ).then((_) {
-          showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            enableDrag: true,
-            isDismissible: true,
-            builder: (context) => DraggableScrollableSheet(
-              initialChildSize: 0.9,
-              minChildSize: 0.5,
-              maxChildSize: 0.95,
-              expand: false,
-              builder: (context, scrollController) =>
-                  FeedbackBottomDrawer(sessionId: session.sessionId),
-            ),
-          );
-        });
-      }
+          ).then((_) {
+            showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              enableDrag: true,
+              isDismissible: true,
+              builder: (context) => DraggableScrollableSheet(
+                initialChildSize: 0.9,
+                minChildSize: 0.5,
+                maxChildSize: 0.95,
+                expand: false,
+                builder: (context, scrollController) =>
+                    FeedbackBottomDrawer(sessionId: session.sessionId),
+              ),
+            );
+          });
+        }
 
-      // At the end of successful upload and processing
-      if (session.isComplete) {
-        try {
-          await SensorChannel.setHasActiveUploads(false);
-          await SensorChannel.stopUpload();
-        } catch (e) {
-          print('Warning: Could not stop upload service: $e');
+        // At the end of successful upload and processing
+        if (session.isComplete) {
+          try {
+            await SensorChannel.setHasActiveUploads(false);
+            await SensorChannel.stopUpload();
+          } catch (e) {
+            print('Warning: Could not stop upload service: $e');
+          }
         }
       }
     } catch (e) {
@@ -1470,9 +1501,9 @@ class _SensorScreenState extends State<SensorScreen> {
       while (!isComplete && !isFailed && pollCount < maxPolls) {
         try {
           await Future.delayed(pollInterval);
-          pollCount++;
           final statusResp = await http.get(Uri.parse(statusUrl + sessionId));
           if (statusResp.statusCode == 200) {
+            pollCount++; // Only increment after successful request
             statusData = jsonDecode(statusResp.body);
             if (statusData != null) {
               final status = statusData['status'];
