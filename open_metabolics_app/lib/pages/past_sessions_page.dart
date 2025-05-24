@@ -704,6 +704,49 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
       );
     }
 
+    // Check if we have any sessions
+    final box = Hive.box('session_summaries');
+    final lastUpdateTimestamp = box.get('last_update_timestamp') as String?;
+    final cachedData = box.get('all_sessions', defaultValue: []) as List;
+
+    if (cachedData.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              lastUpdateTimestamp != null
+                  ? Icons.event_busy
+                  : Icons.sensors_off,
+              size: 64,
+              color: Colors.grey[600],
+            ),
+            SizedBox(height: 16),
+            Text(
+              lastUpdateTimestamp != null
+                  ? 'No Sessions Recorded'
+                  : 'Start Recording',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[600],
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              lastUpdateTimestamp != null
+                  ? 'You haven\'t recorded any sessions yet'
+                  : 'Begin tracking your energy expenditure',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       color: Colors.transparent,
       child: Stack(
@@ -931,9 +974,10 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         child: ListView.builder(
           controller: _scrollController,
           padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 80.0),
-          itemCount: _sessions.length + (_hasNextPage ? 1 : 0),
+          itemCount:
+              _sessions.length + (_hasNextPage && _isFetchingMore ? 1 : 0),
           itemBuilder: (context, index) {
-            if (index == _sessions.length && _hasNextPage) {
+            if (index == _sessions.length && _hasNextPage && _isFetchingMore) {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16.0),
                 child: Center(

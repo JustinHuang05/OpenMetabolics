@@ -1805,6 +1805,13 @@ class _SensorScreenState extends State<SensorScreen> {
       if (shouldLogout == true) {
         final authService = Provider.of<AuthService>(context, listen: false);
         try {
+          // Clear session cache before logging out
+          final sessionBox = Hive.box('session_summaries');
+          final preferencesBox = Hive.box('user_preferences');
+          await sessionBox.clear();
+          await preferencesBox.delete('has_accessed_past_sessions');
+          await preferencesBox.delete('is_calendar_view');
+
           await authService.signOut();
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (context) => LoginPage()),
