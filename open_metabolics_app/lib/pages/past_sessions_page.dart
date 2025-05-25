@@ -148,14 +148,39 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
       final preferencesBox = Hive.box('user_preferences');
       final hasNetworkError =
           preferencesBox.get('has_network_error', defaultValue: false);
+      final hasInitializedCache =
+          preferencesBox.get('has_initialized_cache', defaultValue: false);
+      final box = Hive.box('session_summaries');
+      final cachedData = box.get('all_sessions', defaultValue: []) as List;
+
       if (hasNetworkError) {
-        setState(() {
-          _isNetworkError = true;
-          _isLoading = false;
-          _cachedSessionSummaries = [];
-          _sessions = [];
-          _hasLoadedListViewData = true;
-        });
+        // If we have cached data and cache was initialized, show it instead of network error
+        if (cachedData.isNotEmpty && hasInitializedCache) {
+          setState(() {
+            _isNetworkError = false;
+            _isLoading = false;
+            _cachedSessionSummaries = cachedData.map((item) {
+              if (item is Map) {
+                return Map<String, dynamic>.from(item);
+              }
+              return <String, dynamic>{};
+            }).toList();
+            _sessions = _cachedSessionSummaries
+                .map((item) => SessionSummary.fromJson(item))
+                .whereType<SessionSummary>()
+                .toList();
+            _hasLoadedListViewData = true;
+          });
+          _updateCalendarController();
+        } else {
+          setState(() {
+            _isNetworkError = true;
+            _isLoading = false;
+            _cachedSessionSummaries = [];
+            _sessions = [];
+            _hasLoadedListViewData = true;
+          });
+        }
       }
     } catch (e) {
       print('Error checking network error state: $e');
@@ -165,7 +190,16 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
   Future<void> _saveNetworkErrorState(bool hasError) async {
     try {
       final preferencesBox = Hive.box('user_preferences');
-      await preferencesBox.put('has_network_error', hasError);
+      final box = Hive.box('session_summaries');
+      final cachedData = box.get('all_sessions', defaultValue: []) as List;
+      final hasInitializedCache =
+          preferencesBox.get('has_initialized_cache', defaultValue: false);
+
+      // Only save network error state if we don't have valid cached data
+      if (!hasError ||
+          (hasError && (cachedData.isEmpty || !hasInitializedCache))) {
+        await preferencesBox.put('has_network_error', hasError);
+      }
     } catch (e) {
       print('Error saving network error state: $e');
     }

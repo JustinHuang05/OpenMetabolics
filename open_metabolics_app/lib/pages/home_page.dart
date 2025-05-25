@@ -1865,12 +1865,24 @@ class _SensorScreenState extends State<SensorScreen> {
       if (shouldLogout == true) {
         final authService = Provider.of<AuthService>(context, listen: false);
         try {
-          // Clear session cache before logging out
+          // Clear all cache data before logging out
           final sessionBox = Hive.box('session_summaries');
           final preferencesBox = Hive.box('user_preferences');
+
+          // Clear session data
           await sessionBox.clear();
-          await preferencesBox.delete('has_accessed_past_sessions');
-          await preferencesBox.delete('is_calendar_view');
+          await sessionBox.delete('last_update_timestamp');
+
+          // Clear all user preferences
+          await preferencesBox.clear();
+
+          // Clear any active sessions
+          try {
+            await SensorChannel.setHasActiveSessions(false);
+            await SensorChannel.stopSensors();
+          } catch (e) {
+            print('Warning: Could not stop sensors: $e');
+          }
 
           await authService.signOut();
           Navigator.of(context).pushAndRemoveUntil(
