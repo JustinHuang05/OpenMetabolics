@@ -16,6 +16,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'day_sessions_page.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
+import 'package:sticky_headers/sticky_headers.dart';
 
 class PastSessionsPage extends StatefulWidget {
   @override
@@ -1013,7 +1014,12 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                                     decoration: BoxDecoration(
                                       border: Border.all(
                                           color: darkPurple, width: 2),
-                                      borderRadius: BorderRadius.circular(8),
+                                      borderRadius: BorderRadius.only(
+                                        topLeft: Radius.circular(8),
+                                        topRight: Radius.circular(0),
+                                        bottomLeft: Radius.circular(8),
+                                        bottomRight: Radius.circular(8),
+                                      ),
                                       color: Colors.transparent,
                                     ),
                                   ),
@@ -1026,6 +1032,42 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                                         : FontWeight.normal,
                                   ),
                                 ),
+                                if (hasSession)
+                                  Positioned(
+                                    top: -3,
+                                    right: -3,
+                                    child: Container(
+                                      constraints: BoxConstraints(
+                                        minWidth: 18,
+                                        minHeight: 18,
+                                      ),
+                                      padding:
+                                          EdgeInsets.symmetric(horizontal: 5),
+                                      decoration: BoxDecoration(
+                                        color: darkPurple,
+                                        shape: summaries.length > 99
+                                            ? BoxShape.rectangle
+                                            : BoxShape.circle,
+                                        borderRadius: summaries.length > 99
+                                            ? BorderRadius.circular(9)
+                                            : null,
+                                        border: Border.all(
+                                          color: darkPurple,
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          '${summaries.length}',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                               ],
                             ),
                           ),
@@ -1223,6 +1265,21 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         ),
       );
     } else {
+      // Group sessions by day
+      Map<String, List<SessionSummary>> sessionsByDay = {};
+      for (var session in _sessions) {
+        final date = DateTime.parse(session.timestamp).toLocal();
+        final dayKey = _dateFormat.format(date);
+        if (!sessionsByDay.containsKey(dayKey)) {
+          sessionsByDay[dayKey] = [];
+        }
+        sessionsByDay[dayKey]!.add(session);
+      }
+
+      // Sort days in descending order (most recent first)
+      final sortedDays = sessionsByDay.keys.toList()
+        ..sort((a, b) => _dateFormat.parse(b).compareTo(_dateFormat.parse(a)));
+
       return RefreshIndicator(
         color: lightPurple,
         onRefresh: () => _fetchPastSessions(page: 1, isRefresh: true),
@@ -1230,81 +1287,127 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           controller: _scrollController,
           padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 80.0),
           itemCount:
-              _sessions.length + (_hasNextPage && _isFetchingMore ? 1 : 0),
+              sortedDays.length + (_hasNextPage && _isFetchingMore ? 1 : 0),
           itemBuilder: (context, index) {
-            if (index == _sessions.length && _hasNextPage && _isFetchingMore) {
+            if (index == sortedDays.length && _hasNextPage && _isFetchingMore) {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16.0),
                 child: Center(
                     child: CircularProgressIndicator(color: lightPurple)),
               );
             }
-            if (index >= _sessions.length) {
+            if (index >= sortedDays.length) {
               return SizedBox.shrink();
             }
 
-            final session = _sessions[index];
-            final hasFeedback = _surveyResponses[session.sessionId] ?? false;
+            final dayKey = sortedDays[index];
+            final daySessions = sessionsByDay[dayKey]!;
 
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8.0),
-              child: Card(
-                elevation: 2,
-                child: InkWell(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => SessionDetailsPage(
-                          sessionId: session.sessionId,
-                          timestamp: session.timestamp,
-                        ),
-                      ),
-                    ).then((_) {
-                      _refreshSingleSessionSurveyStatus(session.sessionId);
-                    });
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Row(
-                      children: [
-                        Icon(Icons.calendar_today, color: textGray, size: 24),
-                        SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _formatTimestamp(session.timestamp),
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                '${session.measurementCount} measurements',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
-                                    ?.copyWith(
-                                      color: Colors.grey[600],
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (!hasFeedback)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8.0),
-                            child: Icon(
-                              Icons.error_outline,
-                              color: Colors.red,
-                              size: 20,
-                            ),
-                          ),
-                        Icon(Icons.chevron_right, color: Colors.grey[400]),
-                      ],
+            return StickyHeader(
+              header: Container(
+                padding: const EdgeInsets.symmetric(vertical: 14.0),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 18.0, vertical: 8.0),
+                  decoration: BoxDecoration(
+                    color: darkPurple.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    dayKey,
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ),
+              ),
+              content: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ...daySessions.map((session) {
+                    final hasFeedback =
+                        _surveyResponses[session.sessionId] ?? false;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Card(
+                        elevation: 2,
+                        child: InkWell(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => SessionDetailsPage(
+                                  sessionId: session.sessionId,
+                                  timestamp: session.timestamp,
+                                ),
+                              ),
+                            ).then((_) {
+                              _refreshSingleSessionSurveyStatus(
+                                  session.sessionId);
+                            });
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Row(
+                              children: [
+                                Icon(Icons.access_time,
+                                    color: textGray, size: 24),
+                                SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _timeFormat.format(
+                                            DateTime.parse(session.timestamp)
+                                                .toLocal()),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium,
+                                      ),
+                                      SizedBox(height: 4),
+                                      Text(
+                                        '${session.measurementCount} measurements',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              color: Colors.grey[600],
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (!hasFeedback)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 8.0),
+                                    child: Icon(
+                                      Icons.error_outline,
+                                      color: Colors.red,
+                                      size: 20,
+                                    ),
+                                  ),
+                                Icon(Icons.chevron_right,
+                                    color: Colors.grey[400]),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                  // Divider between days
+                  if (index < sortedDays.length - 1)
+                    Divider(
+                      color: Colors.grey[300],
+                      thickness: 1,
+                      height: 24,
+                    ),
+                ],
               ),
             );
           },
