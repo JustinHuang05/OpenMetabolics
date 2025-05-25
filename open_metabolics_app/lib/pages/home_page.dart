@@ -350,40 +350,32 @@ class NetworkErrorWidget extends StatelessWidget {
 
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.grey.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.wifi_off_rounded,
-                size: 64,
-                color: Colors.grey[600],
-              ),
+            Icon(
+              Icons.wifi_off_rounded,
+              color: Colors.grey[600],
+              size: 64,
             ),
-            SizedBox(height: 24),
+            SizedBox(height: 16),
             Text(
-              'Network Connection Required',
+              'No Internet Connection',
               style: TextStyle(
-                fontSize: 20,
+                fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: textGray,
+                color: Colors.grey[700],
               ),
               textAlign: TextAlign.center,
             ),
-            SizedBox(height: 12),
+            SizedBox(height: 8),
             Text(
               'Since you force closed the app, we need to verify your account information. Please check your connection and try again.',
+              textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 16,
                 color: Colors.grey[600],
               ),
-              textAlign: TextAlign.center,
             ),
             SizedBox(height: 24),
             ElevatedButton(
@@ -391,15 +383,9 @@ class NetworkErrorWidget extends StatelessWidget {
               style: ElevatedButton.styleFrom(
                 backgroundColor: lightPurple,
                 foregroundColor: textGray,
-                padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
-              child: Text(
-                'Retry',
-                style: TextStyle(fontSize: 16),
-              ),
+              child: Text('Retry'),
             ),
           ],
         ),
