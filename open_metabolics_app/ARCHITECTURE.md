@@ -66,6 +66,11 @@ end
     %% Frontend to Lambda (API Gateway) connections
     A1-->|Upload Sensor Data|B1
     A1-->|Process Energy Expenditure|E1
+    %% Polling for processing status and fetching results
+    A1-->|Poll Processing Status|E1
+    E1-->|Reads|D5
+    A1-->|Fetch Results|E1
+    E1-->|Reads|D2
     A3-->|Save Profile|B2
     A3-->|Fetch Profile|B3
     A2-->|Fetch Past Sessions|B4
