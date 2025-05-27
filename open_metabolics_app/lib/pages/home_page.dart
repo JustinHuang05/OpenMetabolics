@@ -21,6 +21,7 @@ import '../widgets/energy_expenditure_card.dart';
 import '../widgets/feedback_bottom_drawer.dart';
 import 'package:flutter/services.dart'; // Add this import for PlatformException
 import 'package:hive/hive.dart';
+import 'package:intl/intl.dart';
 
 // Session status class to track session state
 class SessionStatus {
@@ -1360,6 +1361,31 @@ class _SensorScreenState extends State<SensorScreen> {
                           ],
                         ),
                       ),
+                      // Add session date/time at the top (date aligned with icon, time as subtitle below)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Icon(Icons.calendar_today, color: Colors.grey[700]),
+                          SizedBox(width: 8),
+                          Text(
+                            DateFormat('MMMM d, y').format(session.startTime),
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                        ],
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(
+                            left: 32.0), // icon (24) + spacing (8)
+                        child: Text(
+                          DateFormat('HH:mm:ss').format(session.startTime),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(color: Colors.grey[600]),
+                        ),
+                      ),
+                      SizedBox(height: 16),
                       Card(
                         child: Padding(
                           padding: EdgeInsets.all(12.0),
@@ -1404,12 +1430,19 @@ class _SensorScreenState extends State<SensorScreen> {
                             itemBuilder: (context, index) {
                               final result = (results['results'] ?? [])[index];
                               print('Result: $result'); // Debug print
-                              final timestampStr = result['timestamp'] ?? '';
+                              // Simplified: only handle DynamoDB-style {S: ...}
+                              final timestampStr =
+                                  result['Timestamp']?['S'] ?? '';
                               DateTime? timestamp;
                               try {
                                 timestamp = DateTime.tryParse(timestampStr);
                               } catch (_) {
                                 timestamp = null;
+                              }
+                              if (timestampStr.isEmpty || timestamp == null) {
+                                print(
+                                    'Warning: Missing or invalid timestamp in result: '
+                                    '\u001b[33m$result\u001b[0m');
                               }
                               // Use the correct field name from backend: 'EnergyExpenditure'
                               final eeStr = result['EnergyExpenditure']?['N'];
