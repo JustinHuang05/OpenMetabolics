@@ -1869,34 +1869,48 @@ class _SensorScreenState extends State<SensorScreen> {
           title: Text('Log out'),
           content: Text('Are you sure you want to log out?'),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              style: TextButton.styleFrom(
-                backgroundColor:
-                    Color.fromRGBO(216, 194, 251, 1), // light purple
-                foregroundColor: Color.fromRGBO(66, 66, 66, 1), // text gray
-                minimumSize: Size(64, 36),
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+            Row(
+              children: [
+                Expanded(
+                  child: Center(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.symmetric(
+                            vertical: 20.0, horizontal: 8.0),
+                      ),
+                      child: Text(
+                        'Log out',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-              child:
-                  Text('Cancel', style: TextStyle(fontWeight: FontWeight.w500)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: TextButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-                minimumSize: Size(64, 36),
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+                SizedBox(
+                  height: 40,
+                  child: VerticalDivider(
+                    thickness: 1.5,
+                    color: Colors.grey[400],
+                  ),
                 ),
-              ),
-              child: Text('Log out',
-                  style: TextStyle(fontWeight: FontWeight.w500)),
+                Expanded(
+                  child: Center(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.symmetric(
+                            vertical: 20.0, horizontal: 8.0),
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
