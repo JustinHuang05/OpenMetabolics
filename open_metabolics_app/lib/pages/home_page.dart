@@ -1531,16 +1531,40 @@ class _SensorScreenState extends State<SensorScreen> {
       session = null;
     }
 
+    // Helper for retry logic
+    Future<T> retryNetwork<T>(Future<T> Function() fn,
+        {int maxRetries = 3}) async {
+      int attempt = 0;
+      while (true) {
+        try {
+          return await fn();
+        } catch (e) {
+          // Only retry on transient network errors
+          if (e is SocketException ||
+              e.toString().contains('connection closed') ||
+              e.toString().contains('SocketException') ||
+              e.toString().contains('Failed host lookup') ||
+              e.toString().contains('timed out')) {
+            attempt++;
+            if (attempt >= maxRetries) rethrow;
+            await Future.delayed(Duration(seconds: 2 * attempt));
+            continue;
+          }
+          rethrow;
+        }
+      }
+    }
+
     try {
-      // 1. Queue the job
-      final response = await http.post(
-        Uri.parse(processUrl),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "session_id": sessionId,
-          "user_email": userEmail,
-        }),
-      );
+      // 1. Queue the job (with retry)
+      final response = await retryNetwork(() => http.post(
+            Uri.parse(processUrl),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({
+              "session_id": sessionId,
+              "user_email": userEmail,
+            }),
+          ));
 
       if (response.statusCode != 202) {
         final responseBody = response.body;
@@ -1548,7 +1572,7 @@ class _SensorScreenState extends State<SensorScreen> {
         throw Exception('Failed to queue processing: $responseBody');
       }
 
-      // 2. Start polling status
+      // 2. Start polling status (with retry on each poll)
       bool isComplete = false;
       bool isFailed = false;
       String? errorMsg;
@@ -1561,7 +1585,8 @@ class _SensorScreenState extends State<SensorScreen> {
       while (!isComplete && !isFailed && pollCount < maxPolls) {
         try {
           await Future.delayed(pollInterval);
-          final statusResp = await http.get(Uri.parse(statusUrl + sessionId));
+          final statusResp = await retryNetwork(
+              () => http.get(Uri.parse(statusUrl + sessionId)));
           if (statusResp.statusCode == 200) {
             pollCount++; // Only increment after successful request
             statusData = jsonDecode(statusResp.body);
@@ -1588,7 +1613,9 @@ class _SensorScreenState extends State<SensorScreen> {
           // Network error during polling
           if (e is SocketException ||
               e.toString().contains('Failed host lookup') ||
-              e.toString().contains('SocketException')) {
+              e.toString().contains('SocketException') ||
+              e.toString().contains('connection closed') ||
+              e.toString().contains('timed out')) {
             print('Network lost during polling for $sessionId. Pausing.');
             if (session != null && mounted) {
               setState(() {
@@ -1614,8 +1641,9 @@ class _SensorScreenState extends State<SensorScreen> {
         return {'error': 'Processing timed out. Please try again.'};
       }
 
-      // 3. Fetch results
-      final resultsResp = await http.get(Uri.parse(resultsUrl + sessionId));
+      // 3. Fetch results (with retry)
+      final resultsResp =
+          await retryNetwork(() => http.get(Uri.parse(resultsUrl + sessionId)));
       if (resultsResp.statusCode == 200) {
         final responseData = jsonDecode(resultsResp.body);
         final basalRate = responseData['results'] != null &&
@@ -1646,7 +1674,9 @@ class _SensorScreenState extends State<SensorScreen> {
       // Network error during initial queueing
       if (e is SocketException ||
           e.toString().contains('Failed host lookup') ||
-          e.toString().contains('SocketException')) {
+          e.toString().contains('SocketException') ||
+          e.toString().contains('connection closed') ||
+          e.toString().contains('timed out')) {
         print('Network lost during initial queueing for $sessionId. Pausing.');
         if (session != null && mounted) {
           setState(() {
