@@ -34,6 +34,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   Map<String, dynamic>? _surveyResponse;
   final DateFormat _dateFormat = DateFormat('MMMM d, y');
   final DateFormat _timeFormat = DateFormat('HH:mm:ss');
+  // Add a ScrollController for the results list
+  final ScrollController resultsScrollController = ScrollController();
 
   @override
   void initState() {
@@ -402,27 +404,34 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
           ],
           // Results list
           Expanded(
-            child: Scrollbar(
-              thickness: 8,
-              radius: Radius.circular(4),
-              thumbVisibility: true,
-              child: ListView.builder(
-                padding: EdgeInsets.zero,
-                itemCount: _session!.results.length,
-                itemBuilder: (context, index) {
-                  final result = _session!.results[index];
-                  final timestamp = DateTime.parse(result.timestamp);
-                  final isGaitCycle = result.energyExpenditure > basalRate;
+            child: Padding(
+              padding: const EdgeInsets.only(right: 4.0),
+              child: Scrollbar(
+                controller: resultsScrollController,
+                thickness: 8,
+                radius: Radius.circular(4),
+                thumbVisibility: true,
+                interactive: true,
+                child: ListView.builder(
+                  controller: resultsScrollController,
+                  itemExtent: 100.0,
+                  padding: EdgeInsets.zero,
+                  itemCount: _session!.results.length,
+                  itemBuilder: (context, index) {
+                    final result = _session!.results[index];
+                    final timestamp = DateTime.parse(result.timestamp);
+                    final isGaitCycle = result.energyExpenditure > basalRate;
 
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: EnergyExpenditureCard(
-                      timestamp: timestamp,
-                      energyExpenditure: result.energyExpenditure,
-                      isGaitCycle: isGaitCycle,
-                    ),
-                  );
-                },
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: EnergyExpenditureCard(
+                        timestamp: timestamp,
+                        energyExpenditure: result.energyExpenditure,
+                        isGaitCycle: isGaitCycle,
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ),

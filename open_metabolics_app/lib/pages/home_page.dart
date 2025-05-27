@@ -1333,151 +1333,106 @@ class _SensorScreenState extends State<SensorScreen> {
           showDialog(
             context: context,
             barrierDismissible: true,
-            builder: (context) => Dialog(
-              child: Container(
-                constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.9,
-                  maxHeight: MediaQuery.of(context).size.height * 0.8,
-                ),
-                child: Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16.0),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.check_circle, color: Colors.green),
-                            SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                'Processing Complete',
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Add session date/time at the top (date aligned with icon, time as subtitle below)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Icon(Icons.calendar_today, color: Colors.grey[700]),
-                          SizedBox(width: 8),
-                          Text(
-                            DateFormat('MMMM d, y').format(session.startTime),
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                        ],
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(
-                            left: 32.0), // icon (24) + spacing (8)
-                        child: Text(
-                          DateFormat('HH:mm:ss').format(session.startTime),
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
-                              ?.copyWith(color: Colors.grey[600]),
-                        ),
-                      ),
-                      SizedBox(height: 16),
-                      Card(
-                        child: Padding(
-                          padding: EdgeInsets.all(12.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+            builder: (context) {
+              final ScrollController eeDialogScrollController =
+                  ScrollController();
+              return Dialog(
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.9,
+                    maxHeight: MediaQuery.of(context).size.height * 0.8,
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16.0),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                'Session Statistics',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Measurements: ${(results['results'] ?? []).length}',
-                                style: Theme.of(context).textTheme.bodyLarge,
-                              ),
-                              Text(
-                                'Basal Rate: ${(results['basal_metabolic_rate'] ?? 0.0).toStringAsFixed(2)} W',
-                                style: Theme.of(context).textTheme.bodyLarge,
-                              ),
-                              Text(
-                                'Gait Cycles: ${(results['gait_cycles'] ?? 0)}',
-                                style: Theme.of(context).textTheme.bodyLarge,
+                              Icon(Icons.check_circle, color: Colors.green),
+                              SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  'Processing Complete',
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
                               ),
                             ],
                           ),
                         ),
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        'Energy Expenditure Results',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      SizedBox(height: 8),
-                      Flexible(
-                        child: Scrollbar(
-                          thickness: 8,
-                          radius: Radius.circular(4),
-                          thumbVisibility: true,
-                          child: ListView.builder(
-                            shrinkWrap: true,
-                            itemCount: (results['results'] ?? []).length,
-                            itemBuilder: (context, index) {
-                              final result = (results['results'] ?? [])[index];
-                              print('Result: $result'); // Debug print
-                              // Simplified: only handle DynamoDB-style {S: ...}
-                              final timestampStr =
-                                  result['Timestamp']?['S'] ?? '';
-                              DateTime? timestamp;
-                              try {
-                                timestamp = DateTime.tryParse(timestampStr);
-                              } catch (_) {
-                                timestamp = null;
-                              }
-                              if (timestampStr.isEmpty || timestamp == null) {
-                                print(
-                                    'Warning: Missing or invalid timestamp in result: '
-                                    '\u001b[33m$result\u001b[0m');
-                              }
-                              // Use the correct field name from backend: 'EnergyExpenditure'
-                              final eeStr = result['EnergyExpenditure']?['N'];
-                              final eeValue = (eeStr is String)
-                                  ? double.tryParse(eeStr) ?? 0.0
-                                  : 0.0;
-                              final bmr =
-                                  results['basal_metabolic_rate'] ?? 0.0;
-                              final isGaitCycle = eeValue > bmr;
-
-                              return EnergyExpenditureCard(
-                                timestamp: timestamp ??
-                                    DateTime.fromMillisecondsSinceEpoch(0),
-                                energyExpenditure: eeValue.toDouble(),
-                                isGaitCycle: isGaitCycle,
-                              );
-                            },
+                        // Add session date/time at the top (date aligned with icon, time as subtitle below)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Icon(Icons.calendar_today, color: Colors.grey[700]),
+                            SizedBox(width: 8),
+                            Text(
+                              DateFormat('MMMM d, y').format(session.startTime),
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ],
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(
+                              left: 32.0), // icon (24) + spacing (8)
+                          child: Text(
+                            DateFormat('HH:mm:ss').format(session.startTime),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(color: Colors.grey[600]),
                           ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 16.0),
-                        child: Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            child: Text('Close'),
+                        SizedBox(height: 16),
+                        Card(
+                          child: Padding(
+                            padding: EdgeInsets.all(12.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Session Statistics',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Measurements: ${(results['results'] ?? []).length}',
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                                Text(
+                                  'Basal Rate: ${(results['basal_metabolic_rate'] ?? 0.0).toStringAsFixed(2)} W',
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                                Text(
+                                  'Gait Cycles: ${(results['gait_cycles'] ?? 0)}',
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                        Padding(
+                          padding: const EdgeInsets.only(top: 16.0),
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: Text('Close'),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ).then((_) {
             showModalBottomSheet(
               context: context,
@@ -1916,11 +1871,32 @@ class _SensorScreenState extends State<SensorScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: Text('Cancel'),
+              style: TextButton.styleFrom(
+                backgroundColor:
+                    Color.fromRGBO(216, 194, 251, 1), // light purple
+                foregroundColor: Color.fromRGBO(66, 66, 66, 1), // text gray
+                minimumSize: Size(64, 36),
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child:
+                  Text('Cancel', style: TextStyle(fontWeight: FontWeight.w500)),
             ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: Text('Log out', style: TextStyle(color: Colors.red)),
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                minimumSize: Size(64, 36),
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: Text('Log out',
+                  style: TextStyle(fontWeight: FontWeight.w500)),
             ),
           ],
         ),
