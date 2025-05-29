@@ -3,6 +3,69 @@ const { unmarshall } = require("@aws-sdk/util-dynamodb");
 
 const dynamodb = new DynamoDBClient();
 const RESULTS_TABLE = process.env.RESULTS_TABLE;
+const SURVEY_TABLE = process.env.SURVEY_TABLE || "user_survey_responses";
+
+// Optimized function to get all surveys for a user in one query
+async function getUserSurveys(userEmail, maxExecutionTime = 25000) { // Leave 5 seconds buffer for Lambda timeout
+  const surveySessionIds = new Set();
+  let lastKey = null;
+  let batchCount = 0;
+  const startTime = Date.now();
+  
+  try {
+    do {
+      // Check if we're approaching timeout
+      if (Date.now() - startTime > maxExecutionTime) {
+        console.warn(`Approaching timeout after ${batchCount} batches. Stopping survey fetch early.`);
+        break;
+      }
+
+      const params = {
+        TableName: SURVEY_TABLE,
+        IndexName: 'UserEmailIndex',
+        KeyConditionExpression: 'UserEmail = :email',
+        ExpressionAttributeValues: { ':email': { S: userEmail } },
+        ProjectionExpression: 'SessionId',
+        ExclusiveStartKey: lastKey,
+        Limit: 1000 // Process in batches of 1000 items
+      };
+      
+      const command = new QueryCommand(params);
+      const result = await dynamodb.send(command);
+      batchCount++;
+      
+      if (result.Items) {
+        result.Items.forEach(item => {
+          const sessionId = item.SessionId?.S;
+          if (sessionId) {
+            surveySessionIds.add(sessionId);
+          }
+        });
+      }
+      
+      // Log progress for very large datasets
+      if (batchCount % 10 === 0) {
+        console.log(`Processed ${batchCount} survey batches, found ${surveySessionIds.size} unique surveys`);
+      }
+      
+      lastKey = result.LastEvaluatedKey;
+      
+      // Safety check for memory usage (rough estimate: each sessionId ~50 bytes)
+      if (surveySessionIds.size > 500000) { // Stop at 500k surveys (~25MB)
+        console.warn(`Reached survey limit of 500k surveys. Stopping early for memory safety.`);
+        break;
+      }
+      
+    } while (lastKey);
+    
+    console.log(`Survey fetch completed: ${batchCount} batches, ${surveySessionIds.size} surveys, ${Date.now() - startTime}ms`);
+  } catch (error) {
+    console.error('Error fetching user surveys:', error);
+    // Return partial data if we have some surveys rather than failing completely
+  }
+  
+  return surveySessionIds;
+}
 
 exports.handler = async (event) => {
   let user_email;
@@ -36,6 +99,12 @@ exports.handler = async (event) => {
   let queryCount = 0;
   
   try {
+    // First, get all survey session IDs for this user in one efficient query
+    console.log(`Fetching all surveys for user ${user_email}`);
+    const surveySessionIds = await getUserSurveys(user_email);
+    console.log(`Found ${surveySessionIds.size} sessions with surveys`);
+
+    // Then get all session data
     do {
       queryCount++;
       console.log(`Executing query ${queryCount} for user ${user_email}`);
@@ -101,12 +170,13 @@ exports.handler = async (event) => {
       }
     });
 
-    // Convert to array and sort by timestamp
+    // Convert to array, sort by timestamp, and add survey status efficiently
     const sortedSessions = Array.from(sessionCounts.entries())
       .map(([sessionId, data]) => ({
         sessionId,
         timestamp: data.timestamp,
-        measurementCount: data.count
+        measurementCount: data.count,
+        hasSurveyResponse: surveySessionIds.has(sessionId) // O(1) lookup instead of async query
       }))
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 

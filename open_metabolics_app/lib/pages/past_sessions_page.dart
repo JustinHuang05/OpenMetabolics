@@ -18,6 +18,111 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:sticky_headers/sticky_headers.dart';
 
+class SessionCard extends StatefulWidget {
+  final SessionSummary session;
+  final VoidCallback onTap;
+  final DateFormat timeFormat;
+  final Color textGray;
+
+  const SessionCard({
+    Key? key,
+    required this.session,
+    required this.onTap,
+    required this.timeFormat,
+    required this.textGray,
+  }) : super(key: key);
+
+  @override
+  _SessionCardState createState() => _SessionCardState();
+}
+
+class _SessionCardState extends State<SessionCard> {
+  bool _showErrorIndicator = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _showErrorIndicator = !widget.session.hasSurveyResponse;
+  }
+
+  @override
+  void didUpdateWidget(SessionCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If survey was just completed, animate the indicator out
+    if (oldWidget.session.hasSurveyResponse !=
+            widget.session.hasSurveyResponse &&
+        widget.session.hasSurveyResponse) {
+      Future.delayed(Duration(milliseconds: 100), () {
+        if (mounted) {
+          setState(() {
+            _showErrorIndicator = false;
+          });
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      child: InkWell(
+        onTap: widget.onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Icon(Icons.access_time, color: widget.textGray, size: 24),
+              SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.timeFormat.format(
+                          DateTime.parse(widget.session.timestamp).toLocal()),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      '${widget.session.measurementCount} measurements',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.grey[600],
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: AnimatedSwitcher(
+                  duration: Duration(milliseconds: 600),
+                  transitionBuilder:
+                      (Widget child, Animation<double> animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: child,
+                    );
+                  },
+                  child: _showErrorIndicator
+                      ? Icon(
+                          Icons.error_outline,
+                          color: Colors.red,
+                          size: 20,
+                          key: ValueKey('error_icon'),
+                        )
+                      : SizedBox.shrink(key: ValueKey('no_error')),
+                ),
+              ),
+              Icon(Icons.chevron_right, color: Colors.grey[400]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class PastSessionsPage extends StatefulWidget {
   @override
   _PastSessionsPageState createState() => _PastSessionsPageState();
@@ -25,7 +130,6 @@ class PastSessionsPage extends StatefulWidget {
 
 class _PastSessionsPageState extends State<PastSessionsPage> {
   List<SessionSummary> _sessions = [];
-  Map<String, bool> _surveyResponses = {};
   bool _isLoading = true;
   bool _isFetchingMore = false;
   String? _errorMessage;
@@ -506,7 +610,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         _errorMessage = null;
         _isNetworkError = false;
         _sessions.clear();
-        _surveyResponses.clear();
         _currentPage = 1;
         _hasNextPage = true;
         _lastSessionId = null;
@@ -572,23 +675,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           _hasLoadedListViewData = true;
           _isLoading = false;
           _isFetchingMore = false;
-
-          // Check survey responses for new sessions
-          if (pageSessions.isNotEmpty) {
-            final newSessionIds = pageSessions
-                .where((s) => !_surveyResponses.containsKey(s.sessionId))
-                .map((s) => s.sessionId)
-                .toList();
-            if (newSessionIds.isNotEmpty) {
-              final authService =
-                  Provider.of<AuthService>(context, listen: false);
-              authService.getCurrentUserEmail().then((userEmail) {
-                if (userEmail != null) {
-                  _checkSurveyResponses(userEmail, newSessionIds);
-                }
-              });
-            }
-          }
         });
       }
     } catch (e) {
@@ -600,50 +686,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         });
       }
       print('Error fetching past sessions: $e');
-    }
-  }
-
-  Future<void> _checkSurveyResponses(
-      String userEmail, List<String> sessionIdsToCheck) async {
-    if (sessionIdsToCheck.isEmpty) return;
-    try {
-      final response = await http.post(
-        Uri.parse(ApiConfig.checkSurveyResponses),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'user_email': userEmail,
-          'session_ids': sessionIdsToCheck,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (mounted) {
-          setState(() {
-            _surveyResponses
-                .addAll(Map<String, bool>.from(data['surveyResponses']));
-          });
-        }
-      } else {
-        final errorData = jsonDecode(response.body);
-        print(
-            'Failed to check survey responses: ${errorData['error']}${errorData['details'] != null ? '\nDetails: ${errorData['details']}' : ''}');
-      }
-    } catch (e) {
-      print('Error checking survey responses: $e');
-    }
-  }
-
-  Future<void> _refreshSingleSessionSurveyStatus(String sessionId) async {
-    if (_surveyResponses.containsKey(sessionId)) {
-      // If we already have the response, no need to fetch again
-      return;
-    }
-
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final userEmail = await authService.getCurrentUserEmail();
-    if (userEmail != null && sessionId.isNotEmpty) {
-      _checkSurveyResponses(userEmail, [sessionId]);
     }
   }
 
@@ -1328,75 +1370,37 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ...daySessions.map((session) {
-                    final hasFeedback =
-                        _surveyResponses[session.sessionId] ?? false;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 8.0),
-                      child: Card(
-                        elevation: 2,
-                        child: InkWell(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => SessionDetailsPage(
+                      child: SessionCard(
+                        session: session,
+                        onTap: () async {
+                          final result = await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => SessionDetailsPage(
+                                sessionId: session.sessionId,
+                                timestamp: session.timestamp,
+                              ),
+                            ),
+                          );
+                          if (result == true) {
+                            setState(() {
+                              final idx = _sessions.indexWhere(
+                                  (s) => s.sessionId == session.sessionId);
+                              if (idx != -1) {
+                                _sessions[idx] = SessionSummary(
                                   sessionId: session.sessionId,
                                   timestamp: session.timestamp,
-                                ),
-                              ),
-                            ).then((_) {
-                              _refreshSingleSessionSurveyStatus(
-                                  session.sessionId);
+                                  measurementCount: session.measurementCount,
+                                  hasSurveyResponse: true,
+                                );
+                              }
                             });
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Row(
-                              children: [
-                                Icon(Icons.access_time,
-                                    color: textGray, size: 24),
-                                SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _timeFormat.format(
-                                            DateTime.parse(session.timestamp)
-                                                .toLocal()),
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleMedium,
-                                      ),
-                                      SizedBox(height: 4),
-                                      Text(
-                                        '${session.measurementCount} measurements',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodyMedium
-                                            ?.copyWith(
-                                              color: Colors.grey[600],
-                                            ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (!hasFeedback)
-                                  Padding(
-                                    padding: const EdgeInsets.only(right: 8.0),
-                                    child: Icon(
-                                      Icons.error_outline,
-                                      color: Colors.red,
-                                      size: 20,
-                                    ),
-                                  ),
-                                Icon(Icons.chevron_right,
-                                    color: Colors.grey[400]),
-                              ],
-                            ),
-                          ),
-                        ),
+                          }
+                        },
+                        timeFormat: _timeFormat,
+                        textGray: textGray,
                       ),
                     );
                   }).toList(),
@@ -1414,5 +1418,17 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         ),
       );
     }
+  }
+
+  Future<void> markSurveyAsFilled(String sessionId) async {
+    final box = Hive.box('session_summaries');
+    final sessions = box.get('all_sessions', defaultValue: []) as List;
+    for (var session in sessions) {
+      if (session['sessionId'] == sessionId) {
+        session['hasSurveyResponse'] = true;
+        break;
+      }
+    }
+    await box.put('all_sessions', sessions);
   }
 }

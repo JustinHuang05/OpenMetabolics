@@ -927,13 +927,14 @@ resource "aws_lambda_function" "get_all_session_summaries_handler" {
   role             = aws_iam_role.lambda_role.arn
   handler          = "get_all_session_summaries.handler"
   runtime          = "nodejs18.x"
-  timeout          = 30
-  memory_size      = 256
+  timeout          = 60
+  memory_size      = 512
   source_code_hash = data.archive_file.get_all_session_summaries_zip.output_base64sha256
 
   environment {
     variables = {
       RESULTS_TABLE = aws_dynamodb_table.energy_expenditure_results.name
+      SURVEY_TABLE  = aws_dynamodb_table.user_survey_responses.name
     }
   }
 

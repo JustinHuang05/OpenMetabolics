@@ -53,11 +53,13 @@ class SessionSummary {
   final String sessionId;
   final String timestamp;
   final int measurementCount;
+  final bool hasSurveyResponse;
 
   SessionSummary({
     required this.sessionId,
     required this.timestamp,
     required this.measurementCount,
+    required this.hasSurveyResponse,
   });
 
   factory SessionSummary.fromJson(Map<String, dynamic> json) {
@@ -65,6 +67,14 @@ class SessionSummary {
       sessionId: json['sessionId'],
       timestamp: json['timestamp'],
       measurementCount: json['measurementCount'],
+      hasSurveyResponse: json['hasSurveyResponse'] ?? false,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'sessionId': sessionId,
+        'timestamp': timestamp,
+        'measurementCount': measurementCount,
+        'hasSurveyResponse': hasSurveyResponse,
+      };
 }

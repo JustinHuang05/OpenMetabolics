@@ -23,7 +23,7 @@ class _NameTfState extends State<NameTf> {
             fontFamily: 'Inter',
             fontWeight: FontWeight.normal,
             fontSize: 14,
-            color: Color.fromRGBO(255, 255, 255, 1),
+            color: Color.fromRGBO(66, 66, 66, 1),
           ),
         ),
         SizedBox(height: 3),
@@ -31,11 +31,11 @@ class _NameTfState extends State<NameTf> {
           height: 52,
           child: Card(
             elevation: 0,
-            color: Color.fromRGBO(66, 66, 66, 1),
+            color: Colors.white,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(6),
               side: BorderSide(
-                color: Color.fromRGBO(255, 255, 255, 1),
+                color: Color.fromRGBO(216, 194, 251, 1),
                 width: 1.5,
               ),
             ),
@@ -45,10 +45,10 @@ class _NameTfState extends State<NameTf> {
                 fontFamily: 'Inter',
                 fontWeight: FontWeight.normal,
                 fontSize: 14,
-                color: Color.fromRGBO(255, 255, 255, 1),
+                color: Color.fromRGBO(66, 66, 66, 1),
               ),
               maxLines: 1,
-              cursorColor: Color.fromRGBO(255, 255, 255, 1),
+              cursorColor: Color.fromRGBO(216, 194, 251, 1),
               decoration: InputDecoration(
                 hintText: widget.hintText,
                 hintStyle: TextStyle(

@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../auth/auth_service.dart';
 import '../config/api_config.dart';
+import 'package:hive/hive.dart';
 
 const kAppPurple = Color.fromRGBO(216, 194, 251, 1);
 
@@ -368,6 +369,18 @@ class _FeedbackBottomDrawerState extends State<FeedbackBottomDrawer> {
       );
 
       if (response.statusCode == 200) {
+        // Update Hive cache to mark this session as having a survey response
+        if (widget.sessionId != null) {
+          final box = Hive.box('session_summaries');
+          final sessions = box.get('all_sessions', defaultValue: []) as List;
+          for (var session in sessions) {
+            if (session['sessionId'] == widget.sessionId) {
+              session['hasSurveyResponse'] = true;
+              break;
+            }
+          }
+          await box.put('all_sessions', sessions);
+        }
         if (mounted) {
           // Dismiss keyboard
           FocusScope.of(context).unfocus();
