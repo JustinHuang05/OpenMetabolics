@@ -32,6 +32,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   bool _hasSurveyResponse = false;
   bool _isSurveyButtonLoading = false;
   Map<String, dynamic>? _surveyResponse;
+  bool _surveyWasNewlyFilled =
+      false; // Track if survey was filled during this session
   final DateFormat _dateFormat = DateFormat('MMMM d, y');
   final DateFormat _timeFormat = DateFormat('HH:mm:ss');
   // Add a ScrollController for the results list
@@ -201,243 +203,251 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         .where((result) => result.energyExpenditure > basalRate)
         .length;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Session Details', style: TextStyle(color: textGray)),
-        backgroundColor: lightPurple,
-      ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Title section with icon
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.calendar_today, color: textGray),
-                SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    _formatTimestamp(widget.timestamp),
-                    style: Theme.of(context).textTheme.titleLarge,
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.of(context).pop(_surveyWasNewlyFilled);
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('Session Details', style: TextStyle(color: textGray)),
+          backgroundColor: lightPurple,
+        ),
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Title section with icon
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.calendar_today, color: textGray),
+                  SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      _formatTimestamp(widget.timestamp),
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          // Stats section and Survey button in a row
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Stats Card
-                Expanded(
-                  child: Card(
-                    child: Padding(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Session Statistics',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Measurements: ${_session!.results.length}',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Basal Rate: ${basalRate.toStringAsFixed(2)} W${_session!.basalMetabolicRate == null ? ' (estimated)' : ''}',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Gait Cycles: $gaitCycles',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
+            // Stats section and Survey button in a row
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Stats Card
+                  Expanded(
+                    child: Card(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                            horizontal: 12.0, vertical: 8.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Session Statistics',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Measurements: ${_session!.results.length}',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Basal Rate: ${basalRate.toStringAsFixed(2)} W${_session!.basalMetabolicRate == null ? ' (estimated)' : ''}',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Gait Cycles: $gaitCycles',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                SizedBox(width: 12),
-                // Survey Button
-                Container(
-                  width: 160,
-                  child: ElevatedButton(
-                    onPressed: _isSurveyButtonLoading
-                        ? null
-                        : () {
-                            showModalBottomSheet(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              enableDrag: true,
-                              isDismissible: true,
-                              builder: (context) => DraggableScrollableSheet(
-                                initialChildSize: 0.9,
-                                minChildSize: 0.5,
-                                maxChildSize: 0.95,
-                                expand: false,
-                                builder: (context, scrollController) {
-                                  return FeedbackBottomDrawer(
-                                    sessionId: widget.sessionId,
-                                    existingResponse: _surveyResponse,
-                                    onSurveySubmitted: () {
-                                      setState(() {
-                                        _hasSurveyResponse = true;
-                                      });
-                                    },
-                                  );
-                                },
-                              ),
-                            );
-                          },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          _hasSurveyResponse ? lightPurple : Colors.red,
-                      foregroundColor:
-                          _hasSurveyResponse ? textGray : Colors.white,
-                      padding: EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                  SizedBox(width: 12),
+                  // Survey Button
+                  Container(
+                    width: 160,
+                    child: ElevatedButton(
+                      onPressed: _isSurveyButtonLoading
+                          ? null
+                          : () {
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                enableDrag: true,
+                                isDismissible: true,
+                                builder: (context) => DraggableScrollableSheet(
+                                  initialChildSize: 0.9,
+                                  minChildSize: 0.5,
+                                  maxChildSize: 0.95,
+                                  expand: false,
+                                  builder: (context, scrollController) {
+                                    return FeedbackBottomDrawer(
+                                      sessionId: widget.sessionId,
+                                      existingResponse: _surveyResponse,
+                                      onSurveySubmitted: () {
+                                        final wasFilled = _hasSurveyResponse;
+                                        setState(() {
+                                          _hasSurveyResponse = true;
+                                          _surveyWasNewlyFilled = !wasFilled;
+                                        });
+                                      },
+                                    );
+                                  },
+                                ),
+                              );
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            _hasSurveyResponse ? lightPurple : Colors.red,
+                        foregroundColor:
+                            _hasSurveyResponse ? textGray : Colors.white,
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 2,
+                        disabledBackgroundColor: _hasSurveyResponse
+                            ? lightPurple.withOpacity(0.5)
+                            : Colors.red.withOpacity(0.5),
+                        disabledForegroundColor: _hasSurveyResponse
+                            ? textGray.withOpacity(0.5)
+                            : Colors.white.withOpacity(0.5),
                       ),
-                      elevation: 2,
-                      disabledBackgroundColor: _hasSurveyResponse
-                          ? lightPurple.withOpacity(0.5)
-                          : Colors.red.withOpacity(0.5),
-                      disabledForegroundColor: _hasSurveyResponse
-                          ? textGray.withOpacity(0.5)
-                          : Colors.white.withOpacity(0.5),
-                    ),
-                    child: _isSurveyButtonLoading
-                        ? SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                _hasSurveyResponse ? textGray : Colors.white,
-                              ),
-                            ),
-                          )
-                        : Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                _hasSurveyResponse
-                                    ? Icons.visibility
-                                    : Icons.assignment,
-                                size: 20,
-                              ),
-                              SizedBox(width: 8),
-                              Text(
-                                _hasSurveyResponse
-                                    ? 'View/Edit Survey'
-                                    : 'Complete Survey',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
+                      child: _isSurveyButtonLoading
+                          ? SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  _hasSurveyResponse ? textGray : Colors.white,
                                 ),
                               ),
-                            ],
-                          ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(height: 16),
-          // Chart toggle and title
-          Padding(
-            padding: EdgeInsets.only(left: 16.0, right: 20.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Energy Expenditure Results',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                Container(
-                  height: 40,
-                  width: 40,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: lightPurple,
-                      width: 2,
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  _hasSurveyResponse
+                                      ? Icons.visibility
+                                      : Icons.assignment,
+                                  size: 20,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  _hasSurveyResponse
+                                      ? 'View/Edit Survey'
+                                      : 'Complete Survey',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
                     ),
-                    color: _isChartVisible ? lightPurple : Colors.transparent,
                   ),
-                  child: IconButton(
-                    padding: EdgeInsets.zero,
-                    iconSize: 20,
-                    icon: Icon(
-                      Icons.bar_chart,
-                      color: _isChartVisible ? Colors.white : lightPurple,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _isChartVisible = !_isChartVisible;
-                      });
-                    },
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          SizedBox(height: 8),
-          if (_isChartVisible) ...[
+            SizedBox(height: 16),
+            // Chart toggle and title
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: EnergyExpenditureChart(
-                results: _session!.results,
-                basalRate: basalRate,
+              padding: EdgeInsets.only(left: 16.0, right: 20.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Energy Expenditure Results',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  Container(
+                    height: 40,
+                    width: 40,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: lightPurple,
+                        width: 2,
+                      ),
+                      color: _isChartVisible ? lightPurple : Colors.transparent,
+                    ),
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      iconSize: 20,
+                      icon: Icon(
+                        Icons.bar_chart,
+                        color: _isChartVisible ? Colors.white : lightPurple,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _isChartVisible = !_isChartVisible;
+                        });
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
             SizedBox(height: 8),
-          ],
-          // Results list
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(right: 4.0),
-              child: Scrollbar(
-                controller: resultsScrollController,
-                thickness: 8,
-                radius: Radius.circular(4),
-                thumbVisibility: true,
-                interactive: true,
-                child: ListView.builder(
+            if (_isChartVisible) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: EnergyExpenditureChart(
+                  results: _session!.results,
+                  basalRate: basalRate,
+                ),
+              ),
+              SizedBox(height: 8),
+            ],
+            // Results list
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 4.0),
+                child: Scrollbar(
                   controller: resultsScrollController,
-                  itemExtent: 100.0,
-                  padding: EdgeInsets.zero,
-                  itemCount: _session!.results.length,
-                  itemBuilder: (context, index) {
-                    final result = _session!.results[index];
-                    final timestamp = DateTime.parse(result.timestamp);
-                    final isGaitCycle = result.energyExpenditure > basalRate;
+                  thickness: 8,
+                  radius: Radius.circular(4),
+                  thumbVisibility: true,
+                  interactive: true,
+                  child: ListView.builder(
+                    controller: resultsScrollController,
+                    itemExtent: 100.0,
+                    padding: EdgeInsets.zero,
+                    itemCount: _session!.results.length,
+                    itemBuilder: (context, index) {
+                      final result = _session!.results[index];
+                      final timestamp = DateTime.parse(result.timestamp);
+                      final isGaitCycle = result.energyExpenditure > basalRate;
 
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: EnergyExpenditureCard(
-                        timestamp: timestamp,
-                        energyExpenditure: result.energyExpenditure,
-                        isGaitCycle: isGaitCycle,
-                      ),
-                    );
-                  },
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                        child: EnergyExpenditureCard(
+                          timestamp: timestamp,
+                          energyExpenditure: result.energyExpenditure,
+                          isGaitCycle: isGaitCycle,
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
