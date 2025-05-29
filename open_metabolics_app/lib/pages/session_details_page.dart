@@ -290,8 +290,10 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                                   return FeedbackBottomDrawer(
                                     sessionId: widget.sessionId,
                                     existingResponse: _surveyResponse,
-                                    onSurveySubmitted: () async {
-                                      await _reloadSessionDetails();
+                                    onSurveySubmitted: () {
+                                      setState(() {
+                                        _hasSurveyResponse = true;
+                                      });
                                     },
                                   );
                                 },
