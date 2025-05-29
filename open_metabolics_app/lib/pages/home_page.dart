@@ -1300,7 +1300,8 @@ class _SensorScreenState extends State<SensorScreen> {
           updatedSummaries.add({
             'sessionId': session.sessionId,
             'timestamp': session.startTime.toUtc().toIso8601String(),
-            'measurementCount': (results['results'] ?? []).length
+            'measurementCount': (results['results'] ?? []).length,
+            'hasSurveyResponse': false,
           });
 
           // Sort by timestamp (most recent first)

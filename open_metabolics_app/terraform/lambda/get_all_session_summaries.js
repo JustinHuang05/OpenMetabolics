@@ -3,6 +3,20 @@ const { unmarshall } = require("@aws-sdk/util-dynamodb");
 
 const dynamodb = new DynamoDBClient();
 const RESULTS_TABLE = process.env.RESULTS_TABLE;
+const SURVEY_TABLE = process.env.SURVEY_TABLE || "user_survey_responses";
+
+// Helper to check if a survey exists for a session
+async function checkSurveyExists(sessionId) {
+  const params = {
+    TableName: SURVEY_TABLE,
+    KeyConditionExpression: 'SessionId = :sid',
+    ExpressionAttributeValues: { ':sid': { S: sessionId } },
+    Limit: 1
+  };
+  const command = new QueryCommand(params);
+  const result = await dynamodb.send(command);
+  return result.Items && result.Items.length > 0;
+}
 
 exports.handler = async (event) => {
   let user_email;
@@ -110,16 +124,24 @@ exports.handler = async (event) => {
       }))
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
+    // Add hasSurveyResponse to each session
+    const sessionsWithSurveyStatus = await Promise.all(
+      sortedSessions.map(async (session) => {
+        const hasSurvey = await checkSurveyExists(session.sessionId);
+        return { ...session, hasSurveyResponse: hasSurvey };
+      })
+    );
+
     const response = {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       },
-      body: JSON.stringify(sortedSessions)
+      body: JSON.stringify(sessionsWithSurveyStatus)
     };
     
-    console.log(`Returning ${sortedSessions.length} session summaries`);
+    console.log(`Returning ${sessionsWithSurveyStatus.length} session summaries`);
     return response;
   } catch (error) {
     console.error('Error:', error);

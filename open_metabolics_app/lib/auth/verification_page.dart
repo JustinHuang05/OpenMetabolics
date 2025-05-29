@@ -22,7 +22,7 @@ class _VerificationPageState extends State<VerificationPage> {
     final authService = Provider.of<AuthService>(context);
 
     return Scaffold(
-      backgroundColor: Color.fromRGBO(66, 66, 66, 1),
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: Text(
           'Verify Email',
@@ -38,7 +38,7 @@ class _VerificationPageState extends State<VerificationPage> {
             Text(
               'Verify Your Email',
               style: TextStyle(
-                color: Colors.white,
+                color: Color.fromRGBO(66, 66, 66, 1),
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
               ),
@@ -47,7 +47,7 @@ class _VerificationPageState extends State<VerificationPage> {
             Text(
               'Please enter the verification code sent to:\n${widget.email}',
               style: TextStyle(
-                color: Colors.white,
+                color: Color.fromRGBO(66, 66, 66, 1),
                 fontSize: 16,
               ),
               textAlign: TextAlign.center,
@@ -55,12 +55,13 @@ class _VerificationPageState extends State<VerificationPage> {
             SizedBox(height: 24),
             TextField(
               controller: _verificationController,
-              style: TextStyle(color: Colors.white),
+              style: TextStyle(color: Color.fromRGBO(66, 66, 66, 1)),
               decoration: InputDecoration(
                 hintText: 'Enter verification code',
                 hintStyle: TextStyle(color: Colors.grey),
                 enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: Colors.white),
+                  borderSide:
+                      BorderSide(color: Color.fromRGBO(216, 194, 251, 1)),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderSide: BorderSide(
@@ -133,10 +134,12 @@ class _VerificationPageState extends State<VerificationPage> {
                     },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Color.fromRGBO(216, 194, 251, 1),
+                foregroundColor: Color.fromRGBO(66, 66, 66, 1),
                 padding: EdgeInsets.symmetric(horizontal: 50, vertical: 15),
               ),
               child: _isLoading
-                  ? CircularProgressIndicator()
+                  ? CircularProgressIndicator(
+                      color: Color.fromRGBO(66, 66, 66, 1))
                   : Text(
                       'Verify',
                       style: TextStyle(

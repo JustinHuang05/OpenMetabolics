@@ -32,7 +32,7 @@ class _SignUpTfState extends State<SignUpTf> {
             fontSize: 14,
             color: widget.error
                 ? Color.fromRGBO(252, 48, 48, 1)
-                : Color.fromRGBO(255, 255, 255, 1),
+                : Color.fromRGBO(66, 66, 66, 1),
           ),
         ),
         SizedBox(height: 3),
@@ -40,13 +40,13 @@ class _SignUpTfState extends State<SignUpTf> {
           height: 52,
           child: Card(
             elevation: 0,
-            color: Color.fromRGBO(66, 66, 66, 1),
+            color: Colors.white,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(6),
               side: BorderSide(
                 color: widget.error
                     ? Color.fromRGBO(252, 48, 48, 1)
-                    : Color.fromRGBO(255, 255, 255, 1),
+                    : Color.fromRGBO(216, 194, 251, 1),
                 width: widget.error ? 3 : 1.5,
               ),
             ),
@@ -60,11 +60,11 @@ class _SignUpTfState extends State<SignUpTf> {
                 fontFamily: 'Inter',
                 fontWeight: FontWeight.normal,
                 fontSize: 14,
-                color: Color.fromRGBO(255, 255, 255, 1),
+                color: Color.fromRGBO(66, 66, 66, 1),
               ),
               keyboardType: widget.isEmail ? TextInputType.emailAddress : null,
               maxLines: 1,
-              cursorColor: Color.fromRGBO(255, 255, 255, 1),
+              cursorColor: Color.fromRGBO(216, 194, 251, 1),
               decoration: InputDecoration(
                 hintText: widget.hintText,
                 hintStyle: TextStyle(

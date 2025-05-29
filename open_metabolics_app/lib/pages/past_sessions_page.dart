@@ -25,7 +25,6 @@ class PastSessionsPage extends StatefulWidget {
 
 class _PastSessionsPageState extends State<PastSessionsPage> {
   List<SessionSummary> _sessions = [];
-  Map<String, bool> _surveyResponses = {};
   bool _isLoading = true;
   bool _isFetchingMore = false;
   String? _errorMessage;
@@ -506,7 +505,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         _errorMessage = null;
         _isNetworkError = false;
         _sessions.clear();
-        _surveyResponses.clear();
         _currentPage = 1;
         _hasNextPage = true;
         _lastSessionId = null;
@@ -572,23 +570,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
           _hasLoadedListViewData = true;
           _isLoading = false;
           _isFetchingMore = false;
-
-          // Check survey responses for new sessions
-          if (pageSessions.isNotEmpty) {
-            final newSessionIds = pageSessions
-                .where((s) => !_surveyResponses.containsKey(s.sessionId))
-                .map((s) => s.sessionId)
-                .toList();
-            if (newSessionIds.isNotEmpty) {
-              final authService =
-                  Provider.of<AuthService>(context, listen: false);
-              authService.getCurrentUserEmail().then((userEmail) {
-                if (userEmail != null) {
-                  _checkSurveyResponses(userEmail, newSessionIds);
-                }
-              });
-            }
-          }
         });
       }
     } catch (e) {
@@ -600,50 +581,6 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         });
       }
       print('Error fetching past sessions: $e');
-    }
-  }
-
-  Future<void> _checkSurveyResponses(
-      String userEmail, List<String> sessionIdsToCheck) async {
-    if (sessionIdsToCheck.isEmpty) return;
-    try {
-      final response = await http.post(
-        Uri.parse(ApiConfig.checkSurveyResponses),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'user_email': userEmail,
-          'session_ids': sessionIdsToCheck,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (mounted) {
-          setState(() {
-            _surveyResponses
-                .addAll(Map<String, bool>.from(data['surveyResponses']));
-          });
-        }
-      } else {
-        final errorData = jsonDecode(response.body);
-        print(
-            'Failed to check survey responses: ${errorData['error']}${errorData['details'] != null ? '\nDetails: ${errorData['details']}' : ''}');
-      }
-    } catch (e) {
-      print('Error checking survey responses: $e');
-    }
-  }
-
-  Future<void> _refreshSingleSessionSurveyStatus(String sessionId) async {
-    if (_surveyResponses.containsKey(sessionId)) {
-      // If we already have the response, no need to fetch again
-      return;
-    }
-
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final userEmail = await authService.getCurrentUserEmail();
-    if (userEmail != null && sessionId.isNotEmpty) {
-      _checkSurveyResponses(userEmail, [sessionId]);
     }
   }
 
@@ -1328,8 +1265,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ...daySessions.map((session) {
-                    final hasFeedback =
-                        _surveyResponses[session.sessionId] ?? false;
+                    final hasFeedback = session.hasSurveyResponse;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 8.0),
                       child: Card(
@@ -1344,10 +1280,7 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
                                   timestamp: session.timestamp,
                                 ),
                               ),
-                            ).then((_) {
-                              _refreshSingleSessionSurveyStatus(
-                                  session.sessionId);
-                            });
+                            );
                           },
                           child: Padding(
                             padding: const EdgeInsets.all(16.0),
@@ -1414,5 +1347,17 @@ class _PastSessionsPageState extends State<PastSessionsPage> {
         ),
       );
     }
+  }
+
+  Future<void> markSurveyAsFilled(String sessionId) async {
+    final box = Hive.box('session_summaries');
+    final sessions = box.get('all_sessions', defaultValue: []) as List;
+    for (var session in sessions) {
+      if (session['sessionId'] == sessionId) {
+        session['hasSurveyResponse'] = true;
+        break;
+      }
+    }
+    await box.put('all_sessions', sessions);
   }
 }

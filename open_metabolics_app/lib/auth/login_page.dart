@@ -41,7 +41,7 @@ class _LoginPageState extends State<LoginPage> {
         }
       },
       child: Scaffold(
-        backgroundColor: Color.fromRGBO(66, 66, 66, 1),
+        backgroundColor: Colors.white,
         extendBody: true,
         resizeToAvoidBottomInset: false,
         appBar: PreferredSize(
@@ -49,13 +49,13 @@ class _LoginPageState extends State<LoginPage> {
           child: Container(
             height: mediaQuery.size.height * 0.13,
             child: CupertinoNavigationBar(
-              backgroundColor: Color.fromRGBO(66, 66, 66, 1),
+              backgroundColor: Colors.white,
               middle: Text(
                 'OpenMetabolics',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: Color.fromRGBO(216, 194, 251, 1),
+                  color: Color.fromRGBO(147, 112, 219, 1),
                 ),
               ),
               border: Border(
@@ -84,7 +84,7 @@ class _LoginPageState extends State<LoginPage> {
                         fontFamily: 'Inter',
                         fontWeight: FontWeight.bold,
                         fontSize: 56,
-                        color: Color.fromRGBO(255, 255, 255, 1),
+                        color: Color.fromRGBO(66, 66, 66, 1),
                       ),
                     ),
                     SizedBox(height: 23),
@@ -135,7 +135,7 @@ class _LoginPageState extends State<LoginPage> {
                         fontFamily: 'Inter',
                         fontWeight: FontWeight.normal,
                         fontSize: 13,
-                        color: Color.fromRGBO(224, 224, 224, 1),
+                        color: Color.fromRGBO(66, 66, 66, 1),
                       ),
                     ),
                     GestureDetector(
@@ -146,7 +146,7 @@ class _LoginPageState extends State<LoginPage> {
                           fontWeight: FontWeight.normal,
                           decoration: TextDecoration.underline,
                           fontSize: 13,
-                          color: Color.fromRGBO(171, 210, 255, 1),
+                          color: Color.fromRGBO(147, 112, 219, 1),
                         ),
                       ),
                       onTap: () {

@@ -29,7 +29,7 @@ class _LoginTfState extends State<LoginTf> {
             fontSize: 18,
             color: widget.error
                 ? Color.fromRGBO(252, 48, 48, 1)
-                : Color.fromRGBO(255, 255, 255, 1),
+                : Color.fromRGBO(66, 66, 66, 1),
           ),
         ),
         SizedBox(height: 3),
@@ -37,13 +37,13 @@ class _LoginTfState extends State<LoginTf> {
           height: 70,
           child: Card(
             elevation: 0,
-            color: Color.fromRGBO(66, 66, 66, 1),
+            color: Colors.white,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(6),
               side: BorderSide(
                 color: widget.error
                     ? Color.fromRGBO(252, 48, 48, 1)
-                    : Color.fromRGBO(255, 255, 255, 1),
+                    : Color.fromRGBO(216, 194, 251, 1),
                 width: widget.error ? 3 : 1.5,
               ),
             ),
@@ -55,14 +55,14 @@ class _LoginTfState extends State<LoginTf> {
                 fontFamily: 'Inter',
                 fontWeight: FontWeight.normal,
                 fontSize: 18,
-                color: Color.fromRGBO(255, 255, 255, 1),
+                color: Color.fromRGBO(66, 66, 66, 1),
               ),
               keyboardType: widget.isEmail ? TextInputType.emailAddress : null,
               maxLines: 1,
-              cursorColor: Color.fromRGBO(255, 255, 255, 1),
+              cursorColor: Color.fromRGBO(216, 194, 251, 1),
               decoration: InputDecoration(
                 filled: true,
-                fillColor: Color.fromRGBO(66, 66, 66, 1),
+                fillColor: Colors.white,
                 hintText: widget.hintText,
                 hintStyle: TextStyle(
                   fontFamily: 'Inter',

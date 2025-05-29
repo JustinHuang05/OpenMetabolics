@@ -53,6 +53,12 @@ class DaySessionsPage extends StatelessWidget {
                 final session = sessions[index];
                 final timestamp =
                     DateTime.parse(session['timestamp']).toLocal();
+                final sessionId = session['sessionId']?.toString() ?? '';
+                // Debug print to verify sessionId and surveyResponses keys
+                print('Session card: sessionId = ' +
+                    sessionId +
+                    ', surveyResponses keys = ' +
+                    session.keys.join(','));
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8.0),
@@ -99,6 +105,15 @@ class DaySessionsPage extends StatelessWidget {
                                 ],
                               ),
                             ),
+                            if (!(session['hasSurveyResponse'] ?? false))
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8.0),
+                                child: Icon(
+                                  Icons.error_outline,
+                                  color: Colors.red,
+                                  size: 20,
+                                ),
+                              ),
                             Icon(Icons.chevron_right, color: Colors.grey[400]),
                           ],
                         ),
