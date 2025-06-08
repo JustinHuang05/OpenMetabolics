@@ -401,13 +401,21 @@ class SensorScreen extends StatefulWidget {
 }
 
 class _SensorScreenState extends State<SensorScreen> {
+  // Upload optimization configuration
+  static const int MAX_CONCURRENT_UPLOADS =
+      10; // Adjust based on device/network capability (increased from 5)
+  static const int UPLOAD_BATCH_SIZE =
+      500; // Rows per batch (increased from 200)
+  static const int PROCESSING_BATCH_SIZE =
+      500; // For gyroscope processing (increased from 200)
+
   String _accelerometerData = 'Accelerometer: (0, 0, 0)';
   String _gyroscopeData = 'Gyroscope: (0, 0, 0)';
   bool _isTracking = false;
   double _threshold = 0; // Threshold value for the average second norm
   int _samplesPerSecond = 50; // Desired samples per second
   int _rowCount = 0; // Count the number of rows saved
-  final int _batchSize = 200; // Compare after 500 rows
+  final int _batchSize = PROCESSING_BATCH_SIZE; // Use the constant
   List<double> _gyroscopeNorms = []; // Store gyroscope second norms
 
   // Add list to track multiple sessions
@@ -1151,7 +1159,7 @@ class _SensorScreenState extends State<SensorScreen> {
 
       String header = session.csvLines!.first;
       List<String> dataRows = session.csvLines!.sublist(1);
-      int batchSize = 200;
+      int batchSize = UPLOAD_BATCH_SIZE; // Use the constant
       int totalBatches = (dataRows.length / batchSize).ceil();
 
       // Don't reset progress when resuming - use the last uploaded batch index
@@ -1173,54 +1181,102 @@ class _SensorScreenState extends State<SensorScreen> {
         });
       }
 
-      for (int batchStartIndex = session.lastUploadedBatchIndex * batchSize;
-          batchStartIndex < dataRows.length;
-          batchStartIndex += batchSize) {
+      // CONCURRENT UPLOAD OPTIMIZATION WITH REAL-TIME PROGRESS
+      const int maxConcurrentUploads = MAX_CONCURRENT_UPLOADS;
+      int currentBatchIndex = session.lastUploadedBatchIndex;
+
+      while (currentBatchIndex < totalBatches) {
         if (!_hasNetworkConnection) {
           setState(() {
             session.isWaitingForNetwork = true;
-            session.lastUploadedBatchIndex = batchStartIndex ~/ batchSize;
-            session.isProcessing = false; // Paused processing/uploading
+            session.lastUploadedBatchIndex = currentBatchIndex;
+            session.isProcessing = false;
           });
           print("Network lost during upload of ${session.sessionId}. Pausing.");
           return;
         }
 
-        List<String> batch = dataRows.sublist(batchStartIndex,
-            (batchStartIndex + batchSize).clamp(0, dataRows.length));
-        String batchCsv = "$header\n${batch.join("\n")}";
-        final Map<String, dynamic> payload = {
-          "csv_data": batchCsv,
-          "user_email": userEmail,
-          "session_id": session.sessionId
-        };
-        final String lambdaEndpoint = ApiConfig.saveRawSensorData;
+        // Create futures for concurrent uploads with real-time progress
+        List<Future<bool>> uploadFutures = [];
+        int batchesInThisRound = 0;
+        int completedInThisRound = 0;
 
-        print(
-            "📤 Uploading batch ${batchStartIndex ~/ batchSize + 1}/$totalBatches for ${session.sessionId}");
-        final response = await http.post(Uri.parse(lambdaEndpoint),
-            headers: {"Content-Type": "application/json"},
-            body: jsonEncode(payload));
+        // Create up to maxConcurrentUploads concurrent uploads
+        for (int i = 0;
+            i < maxConcurrentUploads && (currentBatchIndex + i) < totalBatches;
+            i++) {
+          int batchIndex = currentBatchIndex + i;
+          int batchStartIndex = batchIndex * batchSize;
 
-        if (response.statusCode == 200) {
-          print(
-              "✅ Batch ${batchStartIndex ~/ batchSize + 1} for ${session.sessionId} uploaded successfully!");
-          if (mounted)
+          if (batchStartIndex >= dataRows.length) break;
+
+          List<String> batch = dataRows.sublist(batchStartIndex,
+              (batchStartIndex + batchSize).clamp(0, dataRows.length));
+          String batchCsv = "$header\n${batch.join("\n")}";
+
+          final Map<String, dynamic> payload = {
+            "csv_data": batchCsv,
+            "user_email": userEmail,
+            "session_id": session.sessionId
+          };
+
+          // Create upload future with real-time progress callback
+          uploadFutures.add(_uploadSingleBatch(
+                  payload, batchIndex + 1, totalBatches, session.sessionId)
+              .then((success) {
+            if (success && mounted) {
+              // Update progress immediately when this individual batch completes
+              setState(() {
+                completedInThisRound++;
+                session.uploadProgress =
+                    (currentBatchIndex + completedInThisRound) / totalBatches;
+              });
+            }
+            return success;
+          }));
+          batchesInThisRound++;
+        }
+
+        // Wait for all concurrent uploads to complete
+        try {
+          List<bool> results = await Future.wait(uploadFutures);
+
+          // Check if all uploads succeeded
+          bool allSucceeded = results.every((result) => result);
+
+          if (allSucceeded) {
+            // Update final state for this batch group
+            currentBatchIndex += batchesInThisRound;
+            if (mounted) {
+              setState(() {
+                session.lastUploadedBatchIndex = currentBatchIndex;
+                // Progress should already be updated from individual completions
+                session.uploadProgress = currentBatchIndex / totalBatches;
+              });
+            }
+            print(
+                "✅ Successfully uploaded $batchesInThisRound concurrent batches for ${session.sessionId}");
+          } else {
+            // If any upload failed, mark as waiting for network and return
+            if (mounted) {
+              setState(() {
+                session.isWaitingForNetwork = true;
+                session.lastUploadedBatchIndex = currentBatchIndex;
+                session.isProcessing = false;
+              });
+            }
+            print("❌ Some batches failed for ${session.sessionId}. Pausing.");
+            return;
+          }
+        } catch (e) {
+          print("❌ Error in concurrent upload for ${session.sessionId}: $e");
+          if (mounted) {
             setState(() {
-              session.uploadProgress =
-                  (batchStartIndex ~/ batchSize + 1) / totalBatches;
-              session.lastUploadedBatchIndex = batchStartIndex ~/ batchSize + 1;
+              session.isWaitingForNetwork = true;
+              session.lastUploadedBatchIndex = currentBatchIndex;
+              session.isProcessing = false;
             });
-        } else {
-          print(
-              "❌ Failed to upload batch ${batchStartIndex ~/ batchSize + 1} for ${session.sessionId}: ${response.body}");
-          if (session != null && mounted)
-            setState(() {
-              session!.isWaitingForNetwork =
-                  true; // Assume network or temp server issue
-              session!.lastUploadedBatchIndex = batchStartIndex ~/ batchSize;
-              session!.isProcessing = false;
-            });
+          }
           return;
         }
       }
@@ -1495,6 +1551,33 @@ class _SensorScreenState extends State<SensorScreen> {
           }
         });
       }
+    }
+  }
+
+  // Helper method for uploading a single batch concurrently
+  Future<bool> _uploadSingleBatch(Map<String, dynamic> payload, int batchNumber,
+      int totalBatches, String sessionId) async {
+    try {
+      final String lambdaEndpoint = ApiConfig.saveRawSensorData;
+
+      print("📤 Uploading batch $batchNumber/$totalBatches for $sessionId");
+      final response = await http.post(
+        Uri.parse(lambdaEndpoint),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(payload),
+      );
+
+      if (response.statusCode == 200) {
+        print("✅ Batch $batchNumber for $sessionId uploaded successfully!");
+        return true;
+      } else {
+        print(
+            "❌ Failed to upload batch $batchNumber for $sessionId: ${response.body}");
+        return false;
+      }
+    } catch (e) {
+      print("❌ Exception uploading batch $batchNumber for $sessionId: $e");
+      return false;
     }
   }
 

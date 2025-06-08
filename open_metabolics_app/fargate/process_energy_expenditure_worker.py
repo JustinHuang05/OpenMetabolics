@@ -224,7 +224,7 @@ def process_window(window: List[Dict[str, Any]], window_index: int, session_id: 
 
     # Extract timestamps and convert to seconds since epoch
     window_time = [
-        datetime.fromisoformat(item['Timestamp']['S'].replace('Z', '+00:00')).timestamp()
+        datetime.fromisoformat(item['Timestamp']['S'].split('_')[0].replace('Z', '+00:00')).timestamp()
         for item in window
     ]
 
@@ -259,8 +259,8 @@ def process_window(window: List[Dict[str, Any]], window_index: int, session_id: 
 
     results = []
     if len(ee_values) > 0:
-        window_start_time = datetime.fromisoformat(window[0]['Timestamp']['S'].replace('Z', '+00:00'))
-        window_end_time = datetime.fromisoformat(window[-1]['Timestamp']['S'].replace('Z', '+00:00'))
+        window_start_time = datetime.fromisoformat(window[0]['Timestamp']['S'].split('_')[0].replace('Z', '+00:00'))
+        window_end_time = datetime.fromisoformat(window[-1]['Timestamp']['S'].split('_')[0].replace('Z', '+00:00'))
         time_per_gait_cycle = (window_end_time - window_start_time).total_seconds() / len(ee_values)
     else:
         print(f"WARNING: No EE values for window {window_index + 1} in session {session_id}. Skipping window.")
