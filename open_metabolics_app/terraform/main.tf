@@ -222,6 +222,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "dynamodb:GetItem",
           "dynamodb:Query",
           "dynamodb:BatchGetItem",
+          "dynamodb:BatchWriteItem",
           "dynamodb:UpdateItem",
           "dynamodb:DeleteItem"
         ]
@@ -255,8 +256,8 @@ resource "aws_lambda_function" "sensor_data_handler" {
   role            = aws_iam_role.lambda_role.arn
   handler         = "index.handler"
   runtime         = "nodejs18.x"
-  timeout         = 30
-  memory_size     = 256
+  timeout         = 60
+  memory_size     = 512
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
   environment {
@@ -982,6 +983,9 @@ resource "null_resource" "docker_build_push" {
   triggers = {
     script_hash = filesha256("${path.module}/scripts/build_and_push.sh")
     dockerfile_hash = filesha256("${path.module}/../fargate/Dockerfile")
+    worker_hash = filesha256("${path.module}/../fargate/process_energy_expenditure_worker.py")
+    api_hash = filesha256("${path.module}/../fargate/process_energy_expenditure.py")
+    utils_hash = filesha256("${path.module}/../fargate/utils.py")
   }
 
   provisioner "local-exec" {
