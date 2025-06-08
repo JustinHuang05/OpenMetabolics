@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'auth/auth_service.dart';
 import 'auth/auth_wrapper.dart';
@@ -14,6 +15,13 @@ Future<void> main() async {
   await dotenv.load(fileName: ".env");
 
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Lock orientation to portrait only
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+
   await Hive.initFlutter();
   await Hive.openBox('session_summaries');
   await Hive.openBox('user_preferences');
