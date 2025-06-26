@@ -19,6 +19,8 @@ class SignUpTf extends StatefulWidget {
 }
 
 class _SignUpTfState extends State<SignUpTf> {
+  bool _obscureText = true;
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -51,7 +53,7 @@ class _SignUpTfState extends State<SignUpTf> {
               ),
             ),
             child: TextField(
-              obscureText: widget.isEmail ? false : true,
+              obscureText: widget.isEmail ? false : _obscureText,
               onChanged: (_) {
                 widget.errorCheck();
               },
@@ -74,8 +76,24 @@ class _SignUpTfState extends State<SignUpTf> {
                   fontSize: 14,
                   color: Color.fromRGBO(158, 158, 158, 1),
                 ),
-                contentPadding: EdgeInsets.only(left: 14, right: 14, bottom: 6),
+                contentPadding:
+                    EdgeInsets.only(left: 14, right: 14, top: 14, bottom: 14),
                 border: InputBorder.none,
+                suffixIcon: widget.isEmail
+                    ? null
+                    : IconButton(
+                        icon: Icon(
+                          _obscureText
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                          color: Color.fromRGBO(158, 158, 158, 1),
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _obscureText = !_obscureText;
+                          });
+                        },
+                      ),
               ),
             ),
           ),

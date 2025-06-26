@@ -16,6 +16,8 @@ class LoginTf extends StatefulWidget {
 }
 
 class _LoginTfState extends State<LoginTf> {
+  bool _obscureText = true;
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -48,7 +50,7 @@ class _LoginTfState extends State<LoginTf> {
               ),
             ),
             child: TextField(
-              obscureText: widget.isEmail ? false : true,
+              obscureText: widget.isEmail ? false : _obscureText,
               controller: widget.controller,
               textInputAction: TextInputAction.done,
               style: TextStyle(
@@ -71,8 +73,25 @@ class _LoginTfState extends State<LoginTf> {
                   fontSize: 18,
                   color: Color.fromRGBO(158, 158, 158, 1),
                 ),
-                contentPadding: EdgeInsets.only(left: 14, right: 14, top: 12),
+                contentPadding:
+                    EdgeInsets.only(left: 14, right: 14, top: 20, bottom: 20),
                 border: InputBorder.none,
+                suffixIcon: widget.isEmail
+                    ? null
+                    : IconButton(
+                        icon: Icon(
+                          _obscureText
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                          color: Color.fromRGBO(158, 158, 158, 1),
+                          size: 30,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _obscureText = !_obscureText;
+                          });
+                        },
+                      ),
               ),
             ),
           ),
