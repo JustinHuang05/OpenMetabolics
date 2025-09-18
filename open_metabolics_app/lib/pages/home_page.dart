@@ -22,6 +22,7 @@ import '../widgets/feedback_bottom_drawer.dart';
 import 'package:flutter/services.dart'; // Add this import for PlatformException
 import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
+import '../services/notification_service.dart';
 
 // Session status class to track session state
 class SessionStatus {
@@ -660,6 +661,21 @@ class _SensorScreenState extends State<SensorScreen> {
                   _activeRecorders.remove(sessionStatusToResume.sessionId);
                 });
               }
+
+              // Show push notification for session error
+              try {
+                final errorMessage =
+                    results['error']?.toString() ?? 'Unknown error';
+                await NotificationService.showSessionErrorNotification(
+                  sessionId: sessionStatusToResume.sessionId,
+                  errorMessage: errorMessage,
+                );
+                print(
+                    "🔔 Error notification sent for resumed session ${sessionStatusToResume.sessionId}");
+              } catch (e) {
+                print("❌ Failed to send error notification: $e");
+              }
+
               continue;
             }
             // Only here, for real results, mark as complete
@@ -671,6 +687,19 @@ class _SensorScreenState extends State<SensorScreen> {
                 sessionStatusToResume.results = results;
                 _activeRecorders.remove(sessionStatusToResume.sessionId);
               });
+
+              // Show push notification for session completion
+              try {
+                final measurementCount = (results['results'] ?? []).length;
+                await NotificationService.showSessionCompleteNotification(
+                  sessionId: sessionStatusToResume.sessionId,
+                  measurementCount: measurementCount,
+                );
+                print(
+                    "🔔 Push notification sent for resumed session ${sessionStatusToResume.sessionId}");
+              } catch (e) {
+                print("❌ Failed to send push notification: $e");
+              }
             }
           } else if (!sessionStatusToResume.isComplete &&
               !sessionStatusToResume.isProcessingEnergyExpenditure) {
@@ -1335,6 +1364,19 @@ class _SensorScreenState extends State<SensorScreen> {
             _activeRecorders.remove(session.sessionId);
           });
         }
+
+        // Show push notification for session error
+        try {
+          final errorMessage = results['error']?.toString() ?? 'Unknown error';
+          await NotificationService.showSessionErrorNotification(
+            sessionId: session.sessionId,
+            errorMessage: errorMessage,
+          );
+          print("🔔 Error notification sent for session ${session.sessionId}");
+        } catch (e) {
+          print("❌ Failed to send error notification: $e");
+        }
+
         return;
       }
       // Only here, for real results, mark as complete
@@ -1384,6 +1426,19 @@ class _SensorScreenState extends State<SensorScreen> {
           _activeRecorders.remove(session.sessionId);
         });
         print("✅ Session ${session.sessionId} marked as complete");
+
+        // Show push notification for session completion
+        try {
+          final measurementCount = (results['results'] ?? []).length;
+          await NotificationService.showSessionCompleteNotification(
+            sessionId: session.sessionId,
+            measurementCount: measurementCount,
+          );
+          print("🔔 Push notification sent for session ${session.sessionId}");
+        } catch (e) {
+          print("❌ Failed to send push notification: $e");
+          // Continue with dialog even if notification fails
+        }
 
         // --- Show dialog and survey logic remains same ---
         if (mounted) {
