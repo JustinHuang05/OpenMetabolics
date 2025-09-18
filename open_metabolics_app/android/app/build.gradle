@@ -42,7 +42,7 @@ android {
     defaultConfig {
         applicationId "com.openmetabolics.app"
         minSdkVersion 24
-        targetSdkVersion 34
+        targetSdkVersion 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         multiDexEnabled true
